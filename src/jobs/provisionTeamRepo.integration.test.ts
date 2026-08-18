@@ -113,8 +113,20 @@ afterEach(async () => {
   await removeThrowawayUsers()
 
   // Teams and repos are per-test; remove them so each test starts clean.
+  //
+  // Deleting is not enough: team deletion is eventually consistent, and for about
+  // a second afterwards GET /orgs/{org}/teams/{slug} still answers 200 with the
+  // old id. Every test here uses the same team name, so without waiting for the
+  // deletion to become visible the next test's existence pre-check adopts the
+  // team this one just deleted, and its membership calls 404 forever.
+  //
+  // That is a real product hazard — handled by withDeletedTeamRecovery in
+  // operations/teams.ts — but it is not what these tests are for, and a suite that
+  // manufactures the race against itself fails for reasons that have nothing to do
+  // with the code under test.
   for (const slug of createdTeamSlugs) {
     await deleteTeam(classroomId, installationId, ORG, slug).catch(() => {})
+    await waitForTeamToDisappear(slug)
   }
   createdTeamSlugs.clear()
 
@@ -128,6 +140,16 @@ afterAll(async () => {
   await db.classroom.deleteMany({ where: { slug: SLUG } })
   await db.$disconnect()
 }, 120_000)
+
+/** Poll until a deleted team stops reading as present. See afterEach. */
+async function waitForTeamToDisappear(slug: string, timeoutMs = 15_000): Promise<void> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    if (!(await getTeam(installationId, ORG, slug))) return
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  }
+  console.warn(`[test] team ${slug} still readable ${timeoutMs}ms after deletion`)
+}
 
 async function makeTeam(name: string, memberUserIds: string[]) {
   const team = await db.team.create({
@@ -246,6 +268,17 @@ describe('provisionTeamRepo', () => {
     await provisionTeamRepo({ assignmentRepoId: repoId })
 
     const before = await db.assignmentRepo.findUniqueOrThrow({ where: { id: repoId } })
+
+    // Assert the precondition rather than assuming it. When the first provision
+    // failed, `before.fullName` was null and the real assertion below reported
+    // "expected 'org/teamtest-knights' to be null" — which says nothing about the
+    // cause and cost an afternoon. Fail here, with the reason, instead.
+    expect(
+      before.status,
+      `the first provision did not succeed, so the late-joiner case never ran. failureReason was: ${before.failureReason}`,
+    ).toBe(RepoStatus.READY)
+    expect(before.fullName).not.toBeNull()
+
     const reposBefore = await countOrgRepos()
 
     // A second student joins after the repository already exists. They have no

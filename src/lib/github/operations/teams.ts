@@ -100,6 +100,62 @@ export async function getTeam(
 }
 
 /**
+ * Recover when a slug-keyed team mutation 404s because the team is already gone.
+ *
+ * Deleting a team is eventually consistent, and the read path lags the write path.
+ * Measured against the live API:
+ *
+ *     +434ms   GET team -> 200 (id=19030092)   PUT membership -> 200
+ *     +1670ms  GET team -> 404                 PUT membership -> 404
+ *
+ * That window is long enough for `createTeam`'s existence pre-check to adopt a team
+ * that has already been deleted and report `created: false`. Provisioning then does
+ * a few seconds of other work, by which time the deletion has reached the read
+ * path, and every remaining call keyed on that slug 404s permanently.
+ *
+ * A 404 from these endpoints is ambiguous — missing team, missing user, missing
+ * repository — and `toDomainError` has to choose, so it blames the student ("that
+ * GitHub username does not exist") or the installation ("the app is no longer
+ * installed"). Both are wrong here, and both send an instructor chasing a problem
+ * that does not exist.
+ *
+ * So on a 404, ask whether the team is still there:
+ *
+ *   * Gone — we adopted a deleted team. Retryable, so the queue reruns the job and
+ *     `createTeam` makes a real one. This is the self-healing path.
+ *   * Still there — the 404 is about the user or the repository, a real error.
+ *     Rethrown immediately, because no amount of waiting conjures a missing account.
+ *
+ * Handled here rather than by marking every 404 retryable, because pg-boss would
+ * rerun the whole provisioning job — recreating teams, regenerating repositories —
+ * to get past an error that is usually permanent.
+ */
+async function withDeletedTeamRecovery<T>(
+  installationId: bigint,
+  org: string,
+  teamSlug: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await fn()
+  } catch (error) {
+    if (!(error instanceof GitHubDomainError) || error.status !== 404) throw error
+    if (await getTeam(installationId, org, teamSlug)) throw error
+
+    throw new GitHubDomainError({
+      kind: 'Unknown',
+      status: 404,
+      message: `team ${org}/${teamSlug} no longer exists; it was most likely deleted while this job was running`,
+      userMessage:
+        'The GitHub team for this group no longer exists — it was most likely deleted while setup was running. This will be retried and the team recreated.',
+      retryable: true,
+      retryAfterMs: 15_000,
+      cause: error,
+    })
+  }
+}
+
+/**
  * Create a team, or return the existing one with that name.
  *
  * Idempotent because a retried group-provisioning job must not create
@@ -153,19 +209,21 @@ export async function addTeamMembership(
   teamSlug: string,
   username: string,
 ): Promise<{ state: MembershipState }> {
-  const data = await teamMutate(
-    `add team membership for user ${username} in org ${org}`,
-    classroomId,
-    installationId,
-    (octokit) =>
-      octokit.rest.teams
-        .addOrUpdateMembershipForUserInOrg({
-          org,
-          team_slug: teamSlug,
-          username,
-          role: 'member',
-        })
-        .then((r) => r.data),
+  const data = await withDeletedTeamRecovery(installationId, org, teamSlug, () =>
+    teamMutate(
+      `add team membership for user ${username} in org ${org}`,
+      classroomId,
+      installationId,
+      (octokit) =>
+        octokit.rest.teams
+          .addOrUpdateMembershipForUserInOrg({
+            org,
+            team_slug: teamSlug,
+            username,
+            role: 'member',
+          })
+          .then((r) => r.data),
+    ),
   )
 
   return { state: data.state === 'pending' ? 'pending' : 'active' }
@@ -232,18 +290,20 @@ export async function addTeamRepoAccess(
   repo: string,
   permission: Permission,
 ): Promise<void> {
-  await teamMutate(
-    `add repo access for team ${teamSlug} in org ${org}`,
-    classroomId,
-    installationId,
-    (octokit) =>
-      octokit.rest.teams.addOrUpdateRepoPermissionsInOrg({
-        org,
-        team_slug: teamSlug,
-        owner: repoOwner,
-        repo,
-        permission,
-      }),
+  await withDeletedTeamRecovery(installationId, org, teamSlug, () =>
+    teamMutate(
+      `add repo access for team ${teamSlug} in org ${org}`,
+      classroomId,
+      installationId,
+      (octokit) =>
+        octokit.rest.teams.addOrUpdateRepoPermissionsInOrg({
+          org,
+          team_slug: teamSlug,
+          owner: repoOwner,
+          repo,
+          permission,
+        }),
+    ),
   )
 }
 

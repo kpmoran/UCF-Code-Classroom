@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { getInstallationOctokit } from './app'
+import { GitHubDomainError } from './errors'
 import { listAppInstallations } from './operations/orgs'
+import { addTeamMembership, createTeam, getTeam } from './operations/teams'
 import { slugifyTeamName } from './repoName'
 
 /**
@@ -160,4 +162,60 @@ describe('team management with the App installation token', () => {
     console.log(`\n  Team repo access: ${data.full_name} push=${data.permissions?.push}`)
     expect(data.permissions?.push).toBe(true)
   })
+})
+
+describe('a team deleted underneath us', () => {
+  // Deleting a team is eventually consistent. For about a second afterwards
+  // GET /orgs/{org}/teams/{slug} still answers 200 with the old id, which is long
+  // enough for createTeam's existence pre-check to adopt a team that is already
+  // gone. Every later call keyed on that slug then 404s permanently, and the raw
+  // 404 is reported as "that GitHub username does not exist" — about a student who
+  // is perfectly fine.
+  //
+  // This locks in the recovery: the failure must be retryable and must say the
+  // team is missing, so the job runs again and recreates it.
+  //
+  // The wait below is the point, not a workaround. Inside the stale window the
+  // membership write *also* still succeeds, so there is nothing to recover from
+  // yet; the damage happens when the pre-check reads stale, work proceeds, and the
+  // mutation lands after the deletion has caught up. Waiting reproduces that
+  // ordering deterministically instead of racing a one-second window.
+  const NAME = 'Verify Deleted Team'
+  const SLUG = slugifyTeamName(NAME)
+
+  afterAll(async () => {
+    if (!installationId) return
+    await getInstallationOctokit(installationId)
+      .rest.teams.deleteInOrg({ org: ORG, team_slug: SLUG })
+      .catch(() => {})
+  }, 60_000)
+
+  it('reports a retryable missing-team error rather than a missing user', async () => {
+    const octokit = getInstallationOctokit(installationId)
+    await octokit.rest.teams.deleteInOrg({ org: ORG, team_slug: SLUG }).catch(() => {})
+
+    const { team } = await createTeam('', installationId, ORG, NAME)
+    await octokit.rest.teams.deleteInOrg({ org: ORG, team_slug: team.slug })
+
+    // Let the deletion reach the read path, so the slug is genuinely dead.
+    const deadline = Date.now() + 20_000
+    while (Date.now() < deadline && (await getTeam(installationId, ORG, team.slug))) {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
+
+    const error = await addTeamMembership('', installationId, ORG, team.slug, INSTRUCTOR).then(
+      () => null,
+      (e: unknown) => e,
+    )
+
+    console.log(`\n  Deleted team ${team.slug}: ${(error as Error)?.message}`)
+
+    expect(error).toBeInstanceOf(GitHubDomainError)
+    const domain = error as GitHubDomainError
+    // Retryable is the whole point: the queue reruns the job and recreates the team.
+    expect(domain.retryable).toBe(true)
+    expect(domain.message).toContain('no longer exists')
+    // And it must not accuse the student of not existing.
+    expect(domain.userMessage).not.toMatch(/username does not exist/i)
+  }, 120_000)
 })
