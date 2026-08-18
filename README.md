@@ -438,6 +438,40 @@ Then fill in the four GitHub App values it left blank (`AUTH_GITHUB_ID`,
 every stored instructor OAuth token. Lose it and every instructor reconnects; leak
 it and you have handed over `admin:org` on your organization.
 
+### 2a. Create a Linode Cloud Firewall
+
+Free, and worth doing for one specific reason: **`ufw` does not protect published
+container ports.** Docker inserts its rules into the `FORWARD` chain ahead of ufw's,
+so `docker run -p 5432:5432` reaches the internet even with `ufw deny 5432` active.
+A Cloud Firewall is enforced upstream in Linode's network, before traffic reaches
+the host, so nothing the host's iptables does can bypass it.
+
+The compose file here publishes only 80 and 443, on Caddy. The firewall turns that
+from a property of the current compose file into a guarantee.
+
+Inbound, default policy **DROP**:
+
+| Protocol | Port | Source | Why |
+|---|---|---|---|
+| TCP | 22 | anywhere | SSH — see below |
+| TCP | 80 | anywhere | ACME challenge, and the HTTP→HTTPS redirect |
+| TCP | 443 | anywhere | the app |
+| ICMP | — | anywhere | optional, for ping and uptime monitoring |
+
+Outbound: **allow all.** The app must reach `api.github.com`, `ghcr.io` and Let's
+Encrypt; restricting outbound breaks certificate issuance for very little gain.
+
+**Do not restrict port 22 to your own address.** It is the instinctive move and it
+breaks deploys: GitHub-hosted runners connect from over 7,000 published ranges
+(`https://api.github.com/meta`) that change regularly. Keeping a firewall in sync
+with that list is worse than leaving 22 open.
+
+Which means key-only authentication is the control that actually matters, so
+`bootstrap.sh` disables password authentication — but only when it can find a key
+belonging to root or a sudo user first. Absent one it warns and changes nothing,
+because disabling passwords on a host whose only access is a password locks you out
+and leaves the serial console as the way back in.
+
 ### 3. Point the GitHub App at the domain
 
 In the App's settings, three URLs — this is also what finally enables webhooks, so

@@ -122,6 +122,69 @@ chmod 700 "/home/$DEPLOY_USER/.ssh"
 chmod 600 "/home/$DEPLOY_USER/.ssh/authorized_keys"
 chown -R "$DEPLOY_USER":"$DEPLOY_USER" "/home/$DEPLOY_USER/.ssh"
 
+say "Hardening SSH"
+# Port 22 must stay open to the internet: GitHub-hosted runners deploy over SSH and
+# draw from more than 7,000 published address ranges, so allowlisting them in a
+# firewall is not practical. Key-only authentication is therefore the control that
+# actually matters, not the firewall.
+#
+# Guarded, and deliberately conservative. Disabling password authentication on a host
+# whose only access is a password locks you out of your own server, and the only way
+# back is the provider's serial console. So this looks for a key belonging to root or
+# a sudo-capable user — NOT the deploy user, whose key this script just generated and
+# which has no sudo. Finding none, it warns and changes nothing.
+admin_key_found=0
+[ -s /root/.ssh/authorized_keys ] && admin_key_found=1
+for member in $(getent group sudo 2>/dev/null | awk -F: '{print $4}' | tr ',' ' '); do
+  home_dir="$(getent passwd "$member" | cut -d: -f6)"
+  [ -n "$home_dir" ] && [ -s "$home_dir/.ssh/authorized_keys" ] && admin_key_found=1
+done
+
+if [ "$admin_key_found" -eq 1 ]; then
+  install -d -m 755 /etc/ssh/sshd_config.d
+  cat > /etc/ssh/sshd_config.d/99-uccc.conf <<'SSHEOF'
+# Written by UCF-Code-Connect deploy/bootstrap.sh
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin prohibit-password
+SSHEOF
+  # `sshd -t` validates the config but also insists on host keys, so it fails on a
+  # host that has none yet — for an environment reason, not a problem with what we
+  # wrote. Reverting on any non-zero exit silently threw away a good config; only a
+  # complaint that actually names our file or a bad option should do that. sshd's own
+  # message is printed either way rather than swallowed.
+  sshd_check="$(sshd -t 2>&1 || true)"
+  if printf '%s' "$sshd_check" | grep -qiE '99-uccc|bad configuration option|unsupported option'; then
+    rm -f /etc/ssh/sshd_config.d/99-uccc.conf
+    echo "WARNING: sshd rejected the hardened config, so it was reverted:" >&2
+    printf '%s\n' "$sshd_check" | sed 's/^/    /' >&2
+  else
+    [ -n "$sshd_check" ] && {
+      echo "note: sshd -t said (not about our config, so keeping it):"
+      printf '%s\n' "$sshd_check" | sed 's/^/    /'
+    }
+    systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+    echo "password authentication disabled; keys only"
+  fi
+else
+  cat >&2 <<'NOKEY'
+
+WARNING: password authentication left ENABLED.
+
+No SSH key was found for root or any sudo user, so disabling passwords would have
+locked you out. Port 22 is open to the internet, which is required for deploys, so
+an open box with password login will be brute-forced.
+
+Fix it:
+    ssh-copy-id root@<this host>          # from your laptop
+then re-run this script, or set by hand in /etc/ssh/sshd_config.d/99-uccc.conf:
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    PermitRootLogin prohibit-password
+
+NOKEY
+fi
+
 say "Firewall"
 if command -v ufw >/dev/null 2>&1; then
   ufw allow 22/tcp   >/dev/null
