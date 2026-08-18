@@ -10,6 +10,10 @@ const nextConfig: NextConfig = {
   // Prisma's query engine and pg are native/server-only; keep the bundler from
   // trying to trace them into any client or edge output.
   serverExternalPackages: ['@prisma/client', '@prisma/adapter-pg', 'pg', 'pg-boss'],
+  // Emit .next/standalone: a self-contained server plus only the node_modules it
+  // actually reaches. This is what the Dockerfile ships, and it is why the runtime
+  // image needs no npm install and no package.json.
+  output: 'standalone',
 }
 
 export default nextConfig

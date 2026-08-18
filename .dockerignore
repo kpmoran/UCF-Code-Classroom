@@ -1,0 +1,46 @@
+# Build inputs only. Anything not needed to run `next build` stays out, both to
+# keep the build context small and to keep it honest about what ships.
+
+node_modules
+.next
+out
+build
+
+# Never in an image. scripts/dev-session.ts forges a signed Auth.js session for
+# any GitHub login — that is the point of it locally and a full authentication
+# bypass anywhere else. It refuses to run when NODE_ENV=production, but a guard
+# that depends on an environment variable is a seatbelt, not a lock. Not shipping
+# it at all is the lock.
+scripts
+
+# Tests never run inside the image, and e2e/ carries the sandbox organization and
+# installation ids.
+e2e
+playwright.config.ts
+playwright-report
+test-results
+vitest.config.mts
+vitest.integration.config.mts
+src/test
+src/**/*.test.ts
+src/**/*.test.tsx
+src/**/*.integration.test.ts
+
+# Secrets and local state.
+.env
+.env.*
+!.env.example
+*.pem
+
+# Repository furniture.
+.git
+.github
+.gitignore
+.DS_Store
+docker-compose.yml
+Dockerfile
+.dockerignore
+README.md
+AGENTS.md
+CLAUDE.md
+*.tsbuildinfo

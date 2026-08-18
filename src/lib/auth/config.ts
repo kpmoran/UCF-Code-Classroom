@@ -46,6 +46,21 @@ const adapter = PrismaAdapter(db)
 
 export const authConfig = {
   adapter,
+  /**
+   * Trust the incoming Host header to build callback and redirect URLs.
+   *
+   * Auth.js infers this when NODE_ENV is not 'production', which is why every
+   * development run and all 50 end-to-end tests pass without it — and why the
+   * omission only appears once the app runs in a production container, where
+   * `/api/auth/session` answers 500 with UntrustedHost and no one can sign in.
+   *
+   * Required for any self-hosted deployment behind a reverse proxy, which is
+   * every deployment of this app. The header is only as trustworthy as the proxy
+   * in front of it, so terminate TLS and set Host there rather than letting an
+   * arbitrary one through; APP_URL remains the canonical origin the app uses for
+   * links it generates itself.
+   */
+  trustHost: true,
   session: { strategy: 'database' },
   pages: {
     signIn: '/signin',

@@ -302,6 +302,10 @@ The placeholder `ENCRYPTION_KEY` in that workflow is 32 zero bytes rather than a
 arbitrary string, because `src/lib/env.ts` length-checks it at import time and the
 job would otherwise fail before running anything.
 
+A second job builds the container image, so a broken `Dockerfile` is caught on the
+pull request that broke it. It only *publishes* from `main`, and only after
+`check` has passed — see [Deploying](#deploying).
+
 ### `verify.yml` — main, nightly, or on request
 
 The Playwright and integration suites, against the real sandbox organization.
@@ -361,9 +365,8 @@ anyone who can run it becomes any instructor. It refuses to run when
 `NODE_ENV=production`, but treat that as a seatbelt, not a lock: the guard only
 fires if the environment variable is set correctly, and it does nothing about a
 copy of the script sitting on a box where someone can set `NODE_ENV` themselves.
-**Exclude `scripts/` from the deployment artifact** — when you write a
-`Dockerfile`, copy only `.next/`, `public/`, `prisma/`, `node_modules/`, and
-`package.json`, and add `scripts/` to a `.dockerignore`.
+`scripts/` is in `.dockerignore`, so it is not in the image at all — which is the
+actual lock. Keep it that way.
 
 **Rotate `GITHUB_CLIENT_SECRET` and the App private key.** The current values were
 pasted into a terminal session during setup, so they should be considered
@@ -375,6 +378,61 @@ development values are in `.env`, which is gitignored but still shared with this
 machine. `ENCRYPTION_KEY` in particular decrypts every stored instructor OAuth
 token — losing it means reconnecting every instructor, and leaking it means
 handing over `admin:org` on your GitHub organization.
+
+## Deploying
+
+Every push to `main` publishes a container image to
+`ghcr.io/kpmoran/ucf-code-connect:latest`, built by the `image` job in `ci.yml`
+only after typecheck, lint, unit tests, and the build have passed. Also tagged by
+commit sha, so a rollback is a tag change rather than a rebuild.
+
+```bash
+docker run -d --name uccc -p 3000:3000 --env-file .env.production \
+  ghcr.io/kpmoran/ucf-code-connect:latest
+```
+
+One container serves the app *and* runs the pg-boss worker, because
+`src/instrumentation.ts` starts the worker in-process. That is deliberate: a
+single-VM course deployment stays one unit. If you ever split them, set
+`RUN_WORKER=false` on the web containers and run one worker separately —
+provisioning, deadline enforcement, and autograde ingestion all live there, so
+without it repositories never leave "queued".
+
+The entrypoint applies pending migrations before serving. Safe for one container;
+set `RUN_MIGRATIONS=false` and migrate as a separate step if you ever run more
+than one replica, because concurrent `migrate deploy` against one database makes
+the losers fail startup rather than wait.
+
+**Put a reverse proxy in front and terminate TLS there.** Auth.js is configured
+with `trustHost: true`, which it has to be for any self-hosted deployment — it
+builds callback URLs from the `Host` header. That header is only as trustworthy as
+what sets it, so the proxy should set `Host` rather than pass an arbitrary one
+through.
+
+Two things the image does not do, by design: it has no `.env`, so every value
+comes from the environment; and it contains no `scripts/`, no tests, and no `e2e/`
+(which carries the sandbox organization and installation ids).
+
+### Verifying a change to the image
+
+The Dockerfile is easy to get subtly wrong in ways that only appear at runtime, so
+build and boot it against a scratch database rather than trusting a green build:
+
+```bash
+docker build -t uccc:local .
+docker exec uccc-postgres createdb -U uccc uccc_dockertest
+docker run --rm -p 3001:3000 \
+  -e DATABASE_URL='postgresql://uccc:uccc_dev_password@host.docker.internal:5433/uccc_dockertest?schema=public' \
+  -e APP_URL='http://localhost:3001' \
+  -e AUTH_SECRET=x -e ENCRYPTION_KEY="$(head -c 32 /dev/zero | base64)" \
+  uccc:local
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3001/api/auth/session   # must be 200
+```
+
+That last check is not arbitrary. It is the endpoint that returned 500 with
+`UntrustedHost` — breaking every sign-in — on the first working build of this
+image, and neither the 298 unit tests nor the 50 end-to-end tests could see it,
+because Auth.js only enforces host trust when `NODE_ENV=production`.
 
 ## Notes on Prisma 7
 

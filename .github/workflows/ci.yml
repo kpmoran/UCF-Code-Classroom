@@ -16,6 +16,9 @@ concurrency:
 
 permissions:
   contents: read
+  # For pushing the image to GHCR. Read-only on pull requests, because the job
+  # below only logs in and pushes on main.
+  packages: write
 
 env:
   # Placeholders, not secrets. src/lib/env.ts validates the environment at import
@@ -72,3 +75,51 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+  image:
+    name: Container image
+    # Only from a commit that passed everything. `latest` is what a deploy pulls,
+    # so it must never point at a build whose tests failed — worth the extra
+    # minute of waiting rather than running these in parallel.
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Built on every push and pull request so a broken Dockerfile is caught
+      # here, but only published from main. A fork's pull request has no package
+      # write access and must not get any.
+      - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # The Dockerfile's own RUN test guards that the Prisma WASM module made
+          # it into the image, so a bad build fails here rather than on the first
+          # query in production.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
