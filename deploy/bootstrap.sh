@@ -29,6 +29,11 @@ fi
 DIR=/opt/uccc
 DEPLOY_USER=uccc-deploy
 
+# Used for the DNS instruction and, more importantly, as DEPLOY_HOST: the deploy
+# should not depend on public DNS resolving. If DNS breaks you still want to be able
+# to ship a fix.
+PUBLIC_IP="$(curl -fsS4 --max-time 10 https://api.ipify.org 2>/dev/null || true)"
+
 say() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
 say "Checking the OS can run this stack"
@@ -192,6 +197,10 @@ if command -v ufw >/dev/null 2>&1; then
   ufw allow 443/tcp  >/dev/null
   ufw --force enable >/dev/null
   ufw status numbered | sed 's/^/    /'
+  # Enabling ufw rebuilds the iptables chains, which can drop the rules Docker
+  # installed. Restarting the daemon makes it put them back, rather than leaving
+  # container networking broken until the next reboot.
+  systemctl restart docker >/dev/null 2>&1 || true
 else
   echo "ufw not present — make sure 22, 80 and 443 are open and nothing else is."
 fi
@@ -245,12 +254,12 @@ Server is ready. Three things left, in this order.
        awk 'BEGIN{ORS="\\\\n"} {print}' your-app.private-key.pem
 
 2. Point DNS at this host, and wait for it to resolve:
-       $APP_DOMAIN  ->  $(curl -fsS4 https://api.ipify.org 2>/dev/null || echo '<this host public IP>')
+       $APP_DOMAIN  ->  ${PUBLIC_IP:-<this host public IP>}
 
 3. Add these repository secrets under
    Settings -> Secrets and variables -> Actions:
 
-   DEPLOY_HOST              $APP_DOMAIN
+   DEPLOY_HOST              ${PUBLIC_IP:-<this host public IP>}
    DEPLOY_USER              $DEPLOY_USER
    DEPLOY_SSH_KEY           the private key printed below
    DEPLOY_SSH_KNOWN_HOSTS   the host key printed below
@@ -265,8 +274,14 @@ cat "$KEY"
 cat <<'MID'
 ─────────────────────── DEPLOY_SSH_KNOWN_HOSTS ─────────────────────────
 MID
-ssh-keyscan -t ed25519 -H "$(hostname -f 2>/dev/null || hostname)" 2>/dev/null || true
-ssh-keyscan -t ed25519 "$APP_DOMAIN" 2>/dev/null || echo "(run: ssh-keyscan $APP_DOMAIN   once DNS resolves)"
+# Keyed to the IP, matching DEPLOY_HOST above. An entry for the domain would not
+# match a connection made to the address, and scanning the domain before its DNS
+# record exists returns nothing at all.
+if [[ -n "$PUBLIC_IP" ]]; then
+  ssh-keyscan -t ed25519 "$PUBLIC_IP" 2>/dev/null || echo "(could not scan; run: ssh-keyscan -t ed25519 $PUBLIC_IP)"
+else
+  echo "(could not determine this host's public IP; run: ssh-keyscan -t ed25519 <ip>)"
+fi
 cat <<'END'
 ────────────────────────────────────────────────────────────────────────
 Then push to main, or run the Deploy workflow by hand. The private key

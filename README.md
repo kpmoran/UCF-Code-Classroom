@@ -494,13 +494,18 @@ output:
 
 | Secret | Value |
 |---|---|
-| `DEPLOY_HOST` | the domain or IP |
+| `DEPLOY_HOST` | the server's **IP**, not the domain — see below |
 | `DEPLOY_USER` | `uccc-deploy` |
 | `DEPLOY_SSH_KEY` | the private key printed by bootstrap |
 | `DEPLOY_SSH_KNOWN_HOSTS` | the host key printed by bootstrap |
 
 And one **variable** (not a secret): `APP_DOMAIN`, your domain. The deploy uses it
 to check the public URL actually answers.
+
+`DEPLOY_HOST` is the IP rather than the domain for two reasons. A `known_hosts`
+entry is keyed to the name you connect to, so an entry for the domain does not match
+a connection made to the address. And more importantly, a deploy that resolves the
+public domain cannot ship a fix when DNS is what is broken.
 
 `DEPLOY_SSH_KNOWN_HOSTS` is required rather than optional. The alternative is
 `StrictHostKeyChecking=no`, which would let anything answering on that address
