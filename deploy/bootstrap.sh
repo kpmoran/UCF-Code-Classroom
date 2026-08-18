@@ -31,6 +31,45 @@ DEPLOY_USER=uccc-deploy
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
+say "Checking the OS can run this stack"
+# Verified against Docker's own apt repository rather than assumed: as of writing,
+# download.docker.com publishes a `xenial` suite but it contains NO
+# docker-compose-plugin at all, and its newest docker-ce is 18.06.3 from 2018.
+# This stack is `docker compose` (Compose v2, a CLI plugin), so on Ubuntu 16.04 it
+# cannot run — Docker would install and then `docker compose` would not exist.
+#
+# Failing here with the reason beats installing a 2018 Docker and discovering the
+# problem three steps later.
+CODENAME="$( . /etc/os-release 2>/dev/null && echo "${VERSION_CODENAME:-${UBUNTU_CODENAME:-unknown}}" )"
+PRETTY="$( . /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-unknown}" )"
+case "$CODENAME" in
+  noble|jammy|focal|bookworm|trixie)
+    echo "$PRETTY — supported"
+    ;;
+  xenial|trusty|bionic|stretch|buster)
+    cat >&2 <<UNSUPPORTED
+
+$PRETTY is too old for this stack.
+
+Docker publishes no docker-compose-plugin for "$CODENAME", and this deployment is
+built on Compose v2 ('docker compose'). Its newest docker-ce for that release dates
+from 2018. The release is also past its Ubuntu security-support window, which is a
+poor place for an application holding student grades.
+
+Fix: rebuild the host on Ubuntu 24.04 LTS. On Linode that is Rebuild in the
+dashboard and it keeps the same IP address.
+
+WARNING: a rebuild erases the disk. Only do it if there is nothing on this host you
+need, or take a backup first.
+
+UNSUPPORTED
+    exit 1
+    ;;
+  *)
+    echo "$PRETTY — not a release I have checked; continuing, but verify 'docker compose version' works afterwards." >&2
+    ;;
+esac
+
 say "Installing Docker"
 if ! command -v docker >/dev/null 2>&1; then
   # Docker's convenience script, which is what Docker itself documents for this.
@@ -39,6 +78,15 @@ else
   echo "already installed: $(docker --version)"
 fi
 systemctl enable --now docker
+
+# The whole stack is `docker compose`; confirm the plugin exists rather than finding
+# out during the first deploy.
+if ! docker compose version >/dev/null 2>&1; then
+  echo "ERROR: 'docker compose' (Compose v2) is not available after installing Docker." >&2
+  echo "       This host cannot run the stack. See the OS note above." >&2
+  exit 1
+fi
+echo "compose: $(docker compose version --short 2>/dev/null || docker compose version)"
 
 say "Creating $DIR"
 mkdir -p "$DIR"
