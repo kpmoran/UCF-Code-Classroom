@@ -354,3 +354,70 @@ test('instructor bulk-provisions with an honest ETA', async ({ page, context }) 
     console.log(`  bulk failure message: ${failed.failureReason}`)
   }
 })
+
+test('the template field suggests the organization\u2019s templates as you type', async ({
+  page,
+  context,
+}) => {
+  const instructor = await seedSession('kpmoran', { isSiteAdmin: true })
+  await applySession(context, instructor)
+  await page.goto(`/classrooms/${SLUG}/assignments/new`)
+
+  const field = page.getByLabel('Template')
+  const list = page.getByRole('listbox', { name: 'Suggested repositories' })
+
+  await field.click()
+  await expect(list.getByRole('option', { name: TEMPLATE })).toBeVisible()
+
+  // A substring from the middle. This is the case a <datalist> cannot serve:
+  // every candidate begins with the organization login, so prefix matching finds
+  // nothing for the only thing anyone would actually type.
+  await field.fill('template')
+  await expect(list.getByRole('option', { name: TEMPLATE })).toBeVisible()
+
+  await field.fill('zzz-definitely-not-a-template')
+  await expect(list).toBeHidden()
+  // Free text must still be usable: templates outside the org are legitimate.
+  await expect(field).toHaveValue('zzz-definitely-not-a-template')
+
+  await field.fill('verify')
+  await field.press('ArrowDown')
+  await field.press('Enter')
+  await expect(field).toHaveValue(`${ORG}/${TEMPLATE}`)
+  await expect(list).toBeHidden()
+})
+
+test('a suggested template can be picked with the mouse and survives submission', async ({
+  page,
+  context,
+}) => {
+  const instructor = await seedSession('kpmoran', { isSiteAdmin: true })
+  await applySession(context, instructor)
+  await page.goto(`/classrooms/${SLUG}/assignments/new`)
+
+  await page.getByLabel('Title').fill('Picked From The Menu')
+  await page.getByLabel('Template').click()
+  await page
+    .getByRole('listbox', { name: 'Suggested repositories' })
+    .getByRole('option', { name: TEMPLATE })
+    .click()
+  // Assert the pick landed in the field before submitting, so a failure below
+  // distinguishes "the menu did not set the value" from "the form did not post it".
+  await expect(page.getByLabel('Template')).toHaveValue(`${ORG}/${TEMPLATE}`)
+
+  await page.getByLabel('Repository name prefix').fill('picked')
+  await page.getByRole('button', { name: /Create and publish/ }).click()
+
+  // Wait for the created assignment's own page, not for a URL pattern: the form
+  // lives at .../assignments/new, which matches /assignments/[a-z0-9]+$ too, so
+  // waitForURL returns immediately and a failed submit slips through silently.
+  await expect(page.getByRole('heading', { name: 'Picked From The Menu' })).toBeVisible()
+
+  // The chosen value has to reach the server, which is the whole point of keeping
+  // this a real form field rather than component state.
+  const assignment = await db.assignment.findFirstOrThrow({
+    where: { classroomId, title: 'Picked From The Menu' },
+  })
+  expect(assignment.templateOwner).toBe(ORG)
+  expect(assignment.templateRepo).toBe(TEMPLATE)
+})

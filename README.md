@@ -16,12 +16,13 @@ repos, with real Actions and real pull requests.
 - Student self-registration via an invite link and roster self-identification
 - Assignments generated from template repositories
 - Individual **and** group (team) assignments
-- Canvas roster import from a Gradebook CSV export
+- Canvas roster import from a Gradebook CSV export, plus adding students one at a time
 - Instructor console for classroom settings and membership management
 - Deadlines with per-student and per-team extensions
 - Autograding via GitHub Actions
 - Feedback pull requests
 - Grade export back to Canvas
+- Light and dark themes, following the reader's system setting
 
 ## Stack
 

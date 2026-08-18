@@ -3,6 +3,7 @@
 import { useActionState, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 
+import { TemplateCombobox } from '@/components/template-combobox'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { FieldError, FieldHint, Input, Label, Select } from '@/components/ui/input'
@@ -131,42 +132,12 @@ export function NewAssignmentForm({
         <CardContent className="space-y-4">
           <div>
             <Label htmlFor="template">Template</Label>
-            {templates.length > 0 ? (
-              <>
-                <Input
-                  id="template"
-                  name="template"
-                  required
-                  list="template-options"
-                  placeholder={`${orgLogin}/hw1-template`}
-                  defaultValue=""
-                />
-                <datalist id="template-options">
-                  {templates.map((t) => (
-                    <option key={t.fullName} value={t.fullName} />
-                  ))}
-                </datalist>
-                <FieldHint>
-                  {templates.length} template repositor
-                  {templates.length === 1 ? 'y' : 'ies'} found in {orgLogin}. You can also paste
-                  any <span className="font-mono">owner/repo</span> or GitHub URL.
-                </FieldHint>
-              </>
-            ) : (
-              <>
-                <Input
-                  id="template"
-                  name="template"
-                  required
-                  placeholder={`${orgLogin}/hw1-template`}
-                />
-                <FieldHint>
-                  No template repositories found in {orgLogin}. Create one and tick “Template
-                  repository” in its GitHub settings, or paste any{' '}
-                  <span className="font-mono">owner/repo</span> here.
-                </FieldHint>
-              </>
-            )}
+            <TemplateCombobox
+              id="template"
+              name="template"
+              orgLogin={orgLogin}
+              templates={templates}
+            />
             {fieldError('template') ? <FieldError>{fieldError('template')}</FieldError> : null}
           </div>
 

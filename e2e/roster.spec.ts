@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 
-import { applySession, db, expect, seedSession, test } from './fixtures'
+import { appAlert, applySession, db, expect, seedSession, test } from './fixtures'
 
 /**
  * Roster import and student registration, end to end.
@@ -343,4 +343,97 @@ test('an invalid or revoked invite link is refused without revealing anything', 
   await db.inviteLink.updateMany({ where: { token: inviteToken }, data: { revokedAt: new Date() } })
   await page.goto(`/join/${inviteToken}`)
   await expect(page.getByText(/has been replaced/)).toBeVisible()
+})
+
+test('instructor adds a single student by hand from settings', async ({ page, context }) => {
+  const instructor = await seedSession('kpmoran', { isSiteAdmin: true })
+  await applySession(context, instructor)
+  await page.goto(`/classrooms/${SLUG}/settings`)
+
+  await page.getByLabel('Name', { exact: true }).fill('Lateadd, Lena')
+  await page.getByLabel('NID').fill('ll900101')
+  await page.getByLabel('SIS user ID').fill('90010001')
+  await page.getByLabel('Email').fill('lena@knights.ucf.edu')
+  await page.getByLabel('Section').fill('COP4331-0002')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+
+  await expect(page.getByRole('status')).toContainText('Added Lateadd, Lena')
+
+  const entry = await db.rosterEntry.findFirstOrThrow({
+    where: { classroomId, sisUserId: '90010001' },
+  })
+  expect(entry.displayName).toBe('Lateadd, Lena')
+  expect(entry.sisLoginId).toBe('ll900101')
+  expect(entry.claimedByUserId).toBeNull()
+
+  // The identity columns grade export reads back must all be present. A sparse
+  // payload here would drop a column from the export for the entire class,
+  // because exportGrades keeps a column only if some row actually has that key.
+  expect(entry.rawColumns).toEqual({
+    Student: 'Lateadd, Lena',
+    ID: '',
+    'SIS User ID': '90010001',
+    'SIS Login ID': 'll900101',
+    Section: 'COP4331-0002',
+  })
+
+  await page.goto(`/classrooms/${SLUG}/roster`)
+  await expect(page.getByText('Lateadd, Lena')).toBeVisible()
+})
+
+test('a hand-added student can claim their own entry through the invite link', async ({
+  page,
+  context,
+  browser,
+}) => {
+  const instructor = await seedSession('kpmoran', { isSiteAdmin: true })
+  await applySession(context, instructor)
+  await page.goto(`/classrooms/${SLUG}/settings`)
+  await page.getByLabel('Name', { exact: true }).fill('Claimant, Cara')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await expect(page.getByRole('status')).toContainText('Added Claimant, Cara')
+
+  // The point of adding a roster entry rather than a member: the student links
+  // their own GitHub account, so nobody has to guess which login is theirs.
+  const studentContext = await browser.newContext()
+  const student = await seedSession('e2e-manual-claimant')
+  await applySession(studentContext, student)
+  const studentPage = await studentContext.newPage()
+  await studentPage.goto(`/join/${inviteToken}`)
+  await expect(studentPage.getByText('Claimant, Cara')).toBeVisible()
+  // Only one entry exists on this roster, so the first radio is hers.
+  await studentPage.getByRole('radio').first().check()
+  const confirm = studentPage.getByRole('button', { name: /This is me/ })
+  await expect(confirm).toBeEnabled()
+  await confirm.click()
+  await studentPage.waitForURL(new RegExp(`/classrooms/${SLUG}`))
+
+  const claimed = await db.rosterEntry.findFirstOrThrow({
+    where: { classroomId, displayName: 'Claimant, Cara' },
+  })
+  expect(claimed.claimedByUserId).toBe(student.id)
+  await studentContext.close()
+})
+
+test('a duplicate SIS user ID is refused with a sentence, not a database error', async ({
+  page,
+  context,
+}) => {
+  const instructor = await seedSession('kpmoran', { isSiteAdmin: true })
+  await applySession(context, instructor)
+  await page.goto(`/classrooms/${SLUG}/settings`)
+
+  await page.getByLabel('Name', { exact: true }).fill('First, Fiona')
+  await page.getByLabel('SIS user ID').fill('90010002')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+  await expect(page.getByRole('status')).toContainText('Added First, Fiona')
+
+  await page.getByLabel('Name', { exact: true }).fill('Second, Sam')
+  await page.getByLabel('SIS user ID').fill('90010002')
+  await page.getByRole('button', { name: 'Add to roster' }).click()
+
+  await expect(appAlert(page)).toContainText('First, Fiona already has SIS user ID 90010002')
+  expect(await db.rosterEntry.count({ where: { classroomId, sisUserId: '90010002' } })).toBe(1)
+  // The rejected input stays in the form rather than being thrown away.
+  await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Second, Sam')
 })

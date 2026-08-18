@@ -7,6 +7,15 @@
  * so nothing has its only definition inside a media query.
  */
 :root {
+  /*
+   * Tells the browser this page has both themes, so the *native* widgets follow
+   * the system preference too: checkboxes, radios, select arrows, the date
+   * picker, scrollbars, and the paint before our CSS lands. Without it those all
+   * stay light while everything around them goes dark — the tokens below only
+   * reach what we style ourselves.
+   */
+  color-scheme: light dark;
+
   --background: #ffffff;
   --surface: #ffffff;
   --surface-subtle: #f7f8fa;

@@ -292,6 +292,108 @@ export async function applyRosterImport(
   }
 }
 
+/**
+ * Add one student to the roster by hand.
+ *
+ * The escape hatch for the cases a Canvas export cannot cover: a late add who is
+ * not on the CSV yet, an auditing student, a section taught out of another shell.
+ *
+ * `rawColumns` is the subtle part. Grade export reproduces the identity columns
+ * from it **verbatim**, because that is what makes Canvas match an import back to
+ * the right student rather than silently creating a second row. A manually added
+ * student has no Canvas row to copy, so we synthesize one with the full standard
+ * column set. Writing only the fields the instructor filled in would be worse than
+ * it looks: exportGrades keeps a column only if some row actually has that key, so
+ * one hand-added student with a sparse payload can drop a column from the export
+ * for the whole class.
+ */
+export async function addRosterEntry(
+  formData: FormData,
+): Promise<RosterActionResult<{ displayName: string }>> {
+  const classroomId = String(formData.get('classroomId') ?? '')
+  const { user, classroom } = await requireInstructor(classroomId)
+
+  const text = (key: string) => {
+    const value = formData.get(key)
+    const trimmed = typeof value === 'string' ? value.trim() : ''
+    return trimmed === '' ? null : trimmed
+  }
+
+  const displayName = text('displayName')
+  if (!displayName) return { ok: false, error: 'A name is required.' }
+  if (displayName.length > 200) return { ok: false, error: 'That name is too long.' }
+
+  const sisUserId = text('sisUserId')
+  const sisLoginId = text('sisLoginId')
+  const email = text('email')
+  const section = text('section')
+
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: 'That email address does not look valid.' }
+  }
+
+  if (classroom.archivedAt) {
+    return { ok: false, error: 'This classroom is archived. Restore it before adding students.' }
+  }
+
+  // Checked before inserting so the instructor gets a sentence rather than a
+  // unique-constraint violation. Still racy in principle, which is why the insert
+  // below also handles P2002.
+  if (sisUserId) {
+    const clash = await db.rosterEntry.findFirst({
+      where: { classroomId, sisUserId },
+      select: { displayName: true },
+    })
+    if (clash) {
+      return {
+        ok: false,
+        error: `${clash.displayName} already has SIS user ID ${sisUserId} on this roster.`,
+      }
+    }
+  }
+
+  const rawColumns: Prisma.InputJsonObject = {
+    Student: displayName,
+    ID: '',
+    'SIS User ID': sisUserId ?? '',
+    'SIS Login ID': sisLoginId ?? '',
+    Section: section ?? '',
+  }
+
+  let entry: { id: string }
+  try {
+    entry = await db.rosterEntry.create({
+      data: { classroomId, displayName, sisUserId, sisLoginId, email, section, rawColumns },
+      select: { id: true },
+    })
+  } catch (error) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      (error as { code?: string }).code === 'P2002'
+    ) {
+      return { ok: false, error: 'Someone with that SIS user ID is already on this roster.' }
+    }
+    throw error
+  }
+
+  await db.auditLog.create({
+    data: {
+      classroomId,
+      actorUserId: user.id,
+      action: 'roster.add_manual',
+      targetType: 'rosterEntry',
+      targetId: entry.id,
+      detail: { displayName, sisUserId, sisLoginId, email, section },
+    },
+  })
+
+  revalidatePath(`/classrooms/${classroom.slug}/roster`)
+  revalidatePath(`/classrooms/${classroom.slug}/settings`)
+  revalidatePath(`/classrooms/${classroom.slug}/grades`)
+  return { ok: true, data: { displayName } }
+}
+
 /** Detach a student's GitHub account from a roster entry, freeing it to reclaim. */
 export async function unlinkRosterEntry(
   formData: FormData,

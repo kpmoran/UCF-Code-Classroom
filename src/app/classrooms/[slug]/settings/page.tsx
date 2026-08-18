@@ -1,5 +1,6 @@
 import Link from 'next/link'
 
+import { AddStudentForm } from '@/components/add-student-form'
 import { ArchiveForm } from '@/components/archive-classroom-form'
 import { ClassroomSettingsForm } from '@/components/classroom-settings-form'
 import { InviteLinkPanel } from '@/components/invite-link-panel'
@@ -117,6 +118,28 @@ export default async function ClassroomSettingsPage(
           joinUrl={joinUrl}
           useCount={inviteLink?.useCount ?? 0}
         />
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Add a student</CardTitle>
+            <CardDescription>
+              For someone a Canvas export does not cover yet — a late add, an auditing
+              student, a section run out of another shell. Adds them to the roster so they can
+              claim their own entry through the invite link;{' '}
+              <Link href={`/classrooms/${full.slug}/roster`} className="underline">
+                import a CSV
+              </Link>{' '}
+              instead when you have the whole list.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AddStudentForm
+              classroomId={full.id}
+              slug={full.slug}
+              archived={full.archivedAt !== null}
+            />
+          </CardContent>
+        </Card>
 
         <Card className="border-danger/40">
           <CardHeader>
