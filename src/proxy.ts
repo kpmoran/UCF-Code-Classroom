@@ -1,0 +1,44 @@
+import { NextResponse, type NextRequest } from 'next/server'
+
+/**
+ * Proxy — what earlier Next.js versions called middleware.
+ *
+ * This performs an *optimistic* redirect only: it checks for the presence of a
+ * session cookie so signed-out visitors are bounced to /signin without paying
+ * for a render. It deliberately does not read the database and is not the
+ * authorization boundary — a forged or stale cookie gets past it. Real checks
+ * live in src/lib/auth/dal.ts, which every protected page and server action
+ * calls. See the Next.js authentication guide, "Optimistic checks with Proxy".
+ */
+
+const PUBLIC_PREFIXES = [
+  '/signin',
+  '/api/auth',
+  // GitHub posts here with an HMAC signature rather than a session cookie.
+  '/api/webhooks',
+  '/join', // Invite links: the landing page itself explains sign-in.
+]
+
+// Auth.js names the session cookie `__Secure-` prefixed over HTTPS.
+const SESSION_COOKIES = ['authjs.session-token', '__Secure-authjs.session-token']
+
+export function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  if (pathname === '/' || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
+    return NextResponse.next()
+  }
+
+  const hasSession = SESSION_COOKIES.some((name) => request.cookies.has(name))
+  if (hasSession) return NextResponse.next()
+
+  const signInUrl = new URL('/signin', request.url)
+  // Preserve where they were going so sign-in can return them there.
+  signInUrl.searchParams.set('next', pathname + request.nextUrl.search)
+  return NextResponse.redirect(signInUrl)
+}
+
+export const config = {
+  // Skip Next internals and static assets.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)'],
+}

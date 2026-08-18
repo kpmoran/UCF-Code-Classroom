@@ -1,0 +1,78 @@
+import { redirect } from 'next/navigation'
+
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { getCurrentUser } from '@/lib/auth/dal'
+import { signIn } from '@/lib/auth/config'
+import { env } from '@/lib/env'
+
+const ERROR_MESSAGES: Record<string, string> = {
+  OAuthAccountNotLinked:
+    'That GitHub account is already linked to a different UCF-Code-Connect user.',
+  AccessDenied: 'You cancelled the GitHub authorization, or access was denied.',
+  Configuration:
+    'GitHub sign-in is not configured on this server. See "GitHub App setup" in the README.',
+}
+
+export default async function SignInPage(props: PageProps<'/signin'>) {
+  const params = await props.searchParams
+  const user = await getCurrentUser()
+
+  const next = typeof params.next === 'string' ? params.next : '/'
+  if (user) redirect(next)
+
+  const errorCode = typeof params.error === 'string' ? params.error : null
+  const configured = Boolean(env.AUTH_GITHUB_ID && env.AUTH_GITHUB_SECRET)
+
+  return (
+    <main className="flex-1 flex items-center justify-center p-6">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>Sign in to UCF-Code-Connect</CardTitle>
+          <CardDescription>
+            Use the GitHub account you will submit coursework with. It gets linked to your
+            entry on the course roster.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {errorCode ? (
+            <p
+              role="alert"
+              className="text-sm rounded-md border border-transparent bg-danger-subtle text-danger px-3 py-2"
+            >
+              {ERROR_MESSAGES[errorCode] ?? `Sign-in failed (${errorCode}).`}
+            </p>
+          ) : null}
+
+          {configured ? (
+            <form
+              action={async () => {
+                'use server'
+                await signIn('github', { redirectTo: next })
+              }}
+            >
+              <Button type="submit" size="lg" className="w-full">
+                Continue with GitHub
+              </Button>
+            </form>
+          ) : (
+            <div className="text-sm rounded-md bg-warning-subtle text-warning px-3 py-2">
+              <p className="font-medium">GitHub sign-in is not configured.</p>
+              <p className="mt-1">
+                Set <code className="font-mono">AUTH_GITHUB_ID</code> and{' '}
+                <code className="font-mono">AUTH_GITHUB_SECRET</code> in{' '}
+                <code className="font-mono">.env</code>, then restart. See “GitHub App
+                setup” in the README.
+              </p>
+            </div>
+          )}
+
+          <p className="text-xs text-muted">
+            Signing in requests read-only access to your GitHub profile and email. Nothing
+            is written to your account.
+          </p>
+        </CardContent>
+      </Card>
+    </main>
+  )
+}

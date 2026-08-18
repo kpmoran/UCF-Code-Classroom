@@ -1,69 +1,111 @@
-import Image from "next/image";
+import Link from 'next/link'
 
-export default function Home() {
+import { SiteHeader } from '@/components/site-header'
+import { Badge } from '@/components/ui/badge'
+import { ButtonLink } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { EmptyState } from '@/components/ui/table'
+import { getCurrentUser, listMyClassrooms } from '@/lib/auth/dal'
+import { ROLE_LABEL } from '@/lib/auth/roles'
+
+export default async function HomePage() {
+  const user = await getCurrentUser()
+
+  if (!user) {
+    return (
+      <>
+        <SiteHeader />
+        <main className="flex-1 flex items-center justify-center p-6">
+          <div className="max-w-xl text-center space-y-4">
+            <h1 className="text-3xl font-semibold">UCF-Code-Connect</h1>
+            <p className="text-muted">
+              Course assignment management backed by GitHub. Sign in to see your classrooms
+              and assignments.
+            </p>
+            <ButtonLink href="/signin">Sign in</ButtonLink>
+          </div>
+        </main>
+      </>
+    )
+  }
+
+  const memberships = await listMyClassrooms()
+  const staffOf = memberships.filter((m) => m.role !== 'STUDENT')
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <>
+      <SiteHeader />
+      <main className="flex-1 mx-auto w-full max-w-6xl px-6 py-8 space-y-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-semibold">Classrooms</h1>
+            <p className="text-sm text-muted mt-1">
+              {memberships.length === 0
+                ? 'You are not in any classroom yet.'
+                : `${memberships.length} classroom${memberships.length === 1 ? '' : 's'}.`}
+            </p>
+          </div>
+          <ButtonLink href="/classrooms/new" variant="accent">New classroom</ButtonLink>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+
+        {memberships.length === 0 ? (
+          <Card>
+            <EmptyState
+              title="No classrooms yet"
+              description="Create a classroom to get started, or open the invite link your instructor sent you."
+              action={
+                <ButtonLink href="/classrooms/new" variant="accent">Create a classroom</ButtonLink>
+              }
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+          </Card>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {memberships.map(({ role, classroom }) => (
+              <Card key={classroom.id}>
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <CardTitle className="truncate">
+                        <Link
+                          href={`/classrooms/${classroom.slug}`}
+                          className="hover:underline"
+                        >
+                          {classroom.name}
+                        </Link>
+                      </CardTitle>
+                      <CardDescription className="truncate">
+                        {[classroom.courseCode, classroom.term].filter(Boolean).join(' · ') ||
+                          'No course code'}
+                      </CardDescription>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <Badge tone={role === 'STUDENT' ? 'neutral' : 'info'}>
+                        {ROLE_LABEL[role]}
+                      </Badge>
+                      {classroom.archivedAt ? <Badge tone="warning">Archived</Badge> : null}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="text-sm text-muted flex gap-4 flex-wrap">
+                  <span>{classroom._count.assignments} assignments</span>
+                  {role !== 'STUDENT' ? (
+                    <span>{classroom._count.rosterEntries} on roster</span>
+                  ) : null}
+                  <span className="font-mono text-xs truncate">
+                    {classroom.githubOrgLogin}
+                  </span>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {staffOf.length > 0 ? (
+          <p className="text-xs text-muted">
+            You manage {staffOf.length} classroom{staffOf.length === 1 ? '' : 's'}.
+          </p>
+        ) : null}
       </main>
-    </div>
-  );
+    </>
+  )
 }

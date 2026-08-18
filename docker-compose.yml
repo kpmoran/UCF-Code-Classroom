@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: uccc-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: uccc
+      POSTGRES_PASSWORD: uccc_dev_password
+      POSTGRES_DB: uccc
+    ports:
+      # 5433 on the host to avoid colliding with any other local Postgres.
+      - "5433:5432"
+    volumes:
+      - uccc-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uccc -d uccc"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  uccc-pgdata:

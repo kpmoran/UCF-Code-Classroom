@@ -1,26 +1,96 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
+/*
+ * Design tokens. UCF's palette is black and gold; gold is used sparingly as an
+ * accent because at full saturation it fails contrast against white for text.
+ * Every color is defined here on `:root` first, then overridden for dark mode,
+ * so nothing has its only definition inside a media query.
+ */
 :root {
   --background: #ffffff;
-  --foreground: #171717;
-}
+  --surface: #ffffff;
+  --surface-subtle: #f7f8fa;
+  --foreground: #14161a;
+  --muted: #5c636e;
+  --border: #e2e5ea;
+  --border-strong: #cbd0d8;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --accent: #b8860b; /* Darkened UCF gold, legible as text on white. */
+  --accent-contrast: #14161a;
+  --accent-bright: #ffc904; /* True UCF gold, for fills only. */
+
+  --success: #0f7b3f;
+  --success-subtle: #e7f6ec;
+  --warning: #8a5a00;
+  --warning-subtle: #fdf3e0;
+  --danger: #b3261e;
+  --danger-subtle: #fdecea;
+  --info: #1a5fb4;
+  --info-subtle: #e8f0fb;
+
+  --radius: 0.5rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0d0f12;
+    --surface: #15181d;
+    --surface-subtle: #1b1f26;
+    --foreground: #e9ebef;
+    --muted: #9aa2ae;
+    --border: #272c34;
+    --border-strong: #3a414c;
+
+    --accent: #ffc904;
+    --accent-contrast: #14161a;
+    --accent-bright: #ffc904;
+
+    --success: #4ade80;
+    --success-subtle: #10291a;
+    --warning: #fbbf24;
+    --warning-subtle: #2a1f05;
+    --danger: #f87171;
+    --danger-subtle: #2b1213;
+    --info: #7cb0f5;
+    --info-subtle: #101d31;
   }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-accent: var(--accent);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-accent-bright: var(--accent-bright);
+
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-info: var(--info);
+  --color-info-subtle: var(--info-subtle);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --radius-DEFAULT: var(--radius);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Visible focus for keyboard users on every interactive element. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

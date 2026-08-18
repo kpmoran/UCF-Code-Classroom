@@ -1,0 +1,532 @@
+// UCF-Code-Connect data model.
+//
+// The application owns the course-shaped concepts GitHub has no notion of
+// (classrooms, rosters, assignments, teams, deadlines, grades) and records how
+// each one was materialized on GitHub. Anything that exists on GitHub is
+// mirrored here with its GitHub id so we can reconcile without guessing.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7: the connection URL lives in prisma.config.ts (for the CLI) and is
+// supplied to PrismaClient via a driver adapter (see src/lib/db.ts).
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Identity (Auth.js)
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String    @id @default(cuid())
+  // String, not BigInt, deliberately. Auth.js JSON-serializes the session and
+  // the Prisma adapter passes this whole model into it, so a BigInt here makes
+  // every sign-in fail with "Do not know how to serialize a BigInt". The same
+  // hazard applies to any field crossing a server/client component boundary.
+  // GitHub ids are opaque identifiers we never do arithmetic on, so nothing is
+  // lost by storing them as text.
+  githubId     String?   @unique
+  githubLogin  String?   @unique
+  name         String?
+  email        String?   @unique
+  emailVerified DateTime?
+  // Named `image`, not `avatarUrl`: @auth/prisma-adapter writes the OAuth
+  // profile straight into this model, so the field names are its contract.
+  image        String?
+  isSiteAdmin  Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  accounts          Account[]
+  sessions          Session[]
+  classroomMembers  ClassroomMember[]
+  claimedRosterEntry RosterEntry?     @relation("RosterClaim")
+  ownedClassrooms   Classroom[]       @relation("ClassroomOwnerToken")
+  teamMemberships   TeamMember[]
+  assignmentRepos   AssignmentRepo[]
+  extensions        Extension[]
+  grantedExtensions Extension[]       @relation("ExtensionGrantedBy")
+  createdTeams      Team[]            @relation("TeamCreatedBy")
+  auditLogs         AuditLog[]
+
+  @@map("users")
+}
+
+// Auth.js account. Also the store for the instructor's elevated org-owner
+// OAuth token: `scope` records what was granted, and `access_token` is
+// encrypted at rest (AES-256-GCM) by src/lib/crypto.ts before it lands here.
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  // True when this account's token carries `admin:org` — i.e. it can invite
+  // org members and manage teams, which an App installation token cannot do.
+  isOwnerToken      Boolean   @default(false)
+  // Last time we successfully used or verified this token. A stale value plus
+  // a 401 is how the UI knows to prompt for reconnection rather than showing
+  // an opaque failure.
+  tokenValidatedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Classrooms
+// ---------------------------------------------------------------------------
+
+model Classroom {
+  id          String  @id @default(cuid())
+  name        String
+  courseCode  String?
+  term        String?
+  slug        String  @unique
+
+  // The backing GitHub organization. `installationId` is our App's
+  // installation on that org; `ownerTokenUserId` points at the user whose
+  // OAuth token we use for org/team operations (see Account.isOwnerToken).
+  githubOrgLogin   String
+  githubOrgId      BigInt
+  installationId   BigInt
+  ownerTokenUserId String?
+
+  // Defaults inherited by new assignments.
+  defaultRepoVisibility   RepoVisibility    @default(PRIVATE)
+  defaultStudentPermission StudentPermission @default(PUSH)
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  ownerTokenUser User?             @relation("ClassroomOwnerToken", fields: [ownerTokenUserId], references: [id], onDelete: SetNull)
+  members        ClassroomMember[]
+  rosterEntries  RosterEntry[]
+  assignments    Assignment[]
+  inviteLinks    InviteLink[]
+  auditLogs      AuditLog[]
+
+  @@index([githubOrgLogin])
+  @@map("classrooms")
+}
+
+enum ClassroomRole {
+  INSTRUCTOR
+  TA
+  STUDENT
+}
+
+enum RepoVisibility {
+  PRIVATE
+  PUBLIC
+}
+
+enum StudentPermission {
+  PULL
+  PUSH
+  MAINTAIN
+  ADMIN
+}
+
+model ClassroomMember {
+  id          String        @id @default(cuid())
+  classroomId String
+  userId      String
+  role        ClassroomRole @default(STUDENT)
+  joinedAt    DateTime      @default(now())
+
+  classroom Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([classroomId, userId])
+  @@index([userId])
+  @@map("classroom_members")
+}
+
+// Shareable join link. Bounded by expiry, revocation, and a use cap so a link
+// leaked outside the course cannot be used indefinitely.
+model InviteLink {
+  id          String    @id @default(cuid())
+  classroomId String
+  token       String    @unique
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  maxUses     Int?
+  useCount    Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  classroom Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+
+  @@index([classroomId])
+  @@map("invite_links")
+}
+
+// ---------------------------------------------------------------------------
+// Roster (imported from a Canvas Gradebook CSV export)
+// ---------------------------------------------------------------------------
+
+model RosterEntry {
+  id          String  @id @default(cuid())
+  classroomId String
+  displayName String
+  sisUserId   String?
+  sisLoginId  String?
+  email       String?
+  section     String?
+
+  // Every column of the source CSV row, verbatim. This is what lets the
+  // Canvas grade export reproduce the exact identity columns Canvas expects
+  // on re-import; do not normalize or drop it.
+  rawColumns Json
+
+  claimedByUserId String?   @unique
+  claimedAt       DateTime?
+  // Soft delete: a student who drops keeps their history and their repos.
+  removedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  classroom     Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  claimedByUser User?     @relation("RosterClaim", fields: [claimedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([classroomId, sisUserId])
+  @@index([classroomId])
+  @@map("roster_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Assignments
+// ---------------------------------------------------------------------------
+
+enum AssignmentType {
+  INDIVIDUAL
+  GROUP
+}
+
+enum TeamNamingMode {
+  STUDENT_CHOSEN
+  INSTRUCTOR_ASSIGNED
+}
+
+model Assignment {
+  id          String         @id @default(cuid())
+  classroomId String
+  title       String
+  slug        String
+  type        AssignmentType @default(INDIVIDUAL)
+
+  // Source template. Kept as owner/name rather than an id because templates
+  // may live outside the classroom's org.
+  templateOwner String
+  templateRepo  String
+
+  repoPrefix        String
+  visibility        RepoVisibility    @default(PRIVATE)
+  studentPermission StudentPermission @default(PUSH)
+
+  deadline       DateTime?
+  lockOnDeadline Boolean   @default(false)
+
+  feedbackPrEnabled Boolean @default(false)
+  autogradeEnabled  Boolean @default(false)
+
+  // Group-assignment settings; null for INDIVIDUAL.
+  maxTeams       Int?
+  maxTeamSize    Int?
+  teamNamingMode TeamNamingMode @default(STUDENT_CHOSEN)
+
+  totalPoints Int       @default(0)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  classroom   Classroom        @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  gradingTests GradingTest[]
+  teams       Team[]
+  repos       AssignmentRepo[]
+  extensions  Extension[]
+
+  @@unique([classroomId, slug])
+  @@index([classroomId])
+  @@map("assignments")
+}
+
+// One autograding check. Rendered into the injected Actions workflow.
+model GradingTest {
+  id            String  @id @default(cuid())
+  assignmentId  String
+  name          String
+  setupCommand  String?
+  runCommand    String
+  timeoutMinutes Int    @default(10)
+  points        Int     @default(0)
+  order         Int     @default(0)
+
+  assignment Assignment           @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  results    AutogradeTestResult[]
+
+  @@index([assignmentId])
+  @@map("grading_tests")
+}
+
+// ---------------------------------------------------------------------------
+// Teams (group assignments)
+// ---------------------------------------------------------------------------
+
+model Team {
+  id           String @id @default(cuid())
+  assignmentId String
+  name         String
+
+  githubTeamId   BigInt?
+  githubTeamSlug String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  assignment    Assignment      @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  createdByUser User?           @relation("TeamCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  members       TeamMember[]
+  repo          AssignmentRepo?
+  extensions    Extension[]
+
+  @@unique([assignmentId, name])
+  @@index([assignmentId])
+  @@map("teams")
+}
+
+enum TeamRole {
+  MEMBER
+  LEADER
+}
+
+// GitHub team membership is asynchronous: invited users sit in `pending` until
+// they accept, and cannot push until they do. `githubMembershipState` mirrors
+// that so the UI can explain why a student has no access yet.
+model TeamMember {
+  id     String   @id @default(cuid())
+  teamId String
+  userId String
+  role   TeamRole @default(MEMBER)
+
+  githubMembershipState String?
+  joinedAt              DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId])
+  @@map("team_members")
+}
+
+// ---------------------------------------------------------------------------
+// Provisioned repositories
+// ---------------------------------------------------------------------------
+
+enum RepoStatus {
+  QUEUED
+  PROVISIONING
+  READY
+  FAILED
+}
+
+// A student's or team's repository for one assignment. Exactly one of userId
+// and teamId is set — enforced by a CHECK constraint added in migration SQL,
+// since Prisma cannot express it.
+model AssignmentRepo {
+  id           String @id @default(cuid())
+  assignmentId String
+  userId       String?
+  teamId       String? @unique
+
+  githubRepoId BigInt?
+  // owner/name. Populated once the repo exists on GitHub.
+  fullName     String?
+  htmlUrl      String?
+
+  status        RepoStatus @default(QUEUED)
+  failureReason String?    @db.Text
+
+  // Outstanding collaborator invitation, if the student has not accepted yet.
+  invitationId     BigInt?
+  feedbackPrNumber Int?
+
+  // Head commit at the effective deadline, captured by the deadline job so
+  // late pushes are visible even when locking is off.
+  deadlineSha String?
+  // When write access was withdrawn at the deadline, or null if not locked.
+  // Tracked rather than inferred so the deadline sweep — which runs every few
+  // minutes — can tell "already locked" from "needs locking" without asking
+  // GitHub about every repository on every pass.
+  lockedAt    DateTime?
+
+  // Manual grade override, used when autograding is off or disputed.
+  manualScore Int?
+  manualScoreNote String? @db.Text
+
+  acceptedAt   DateTime @default(now())
+  lastPushedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  assignment   Assignment    @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team         Team?         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  autogradeRuns AutogradeRun[]
+
+  @@unique([assignmentId, userId])
+  @@index([assignmentId])
+  @@index([status])
+  @@index([githubRepoId])
+  @@map("assignment_repos")
+}
+
+// Per-student or per-team deadline override. Exactly one of userId/teamId set.
+model Extension {
+  id             String   @id @default(cuid())
+  assignmentId   String
+  userId         String?
+  teamId         String?
+  newDeadline    DateTime
+  reason         String?  @db.Text
+  grantedByUserId String?
+  createdAt      DateTime @default(now())
+
+  assignment    Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  user          User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team          Team?      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  grantedByUser User?      @relation("ExtensionGrantedBy", fields: [grantedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([assignmentId, userId])
+  @@unique([assignmentId, teamId])
+  @@index([assignmentId])
+  @@map("extensions")
+}
+
+// ---------------------------------------------------------------------------
+// Autograding
+// ---------------------------------------------------------------------------
+
+enum AutogradeStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model AutogradeRun {
+  id               String @id @default(cuid())
+  assignmentRepoId String
+
+  workflowRunId BigInt @unique
+  headSha       String
+
+  status   AutogradeStatus @default(PENDING)
+  score    Int?
+  maxScore Int?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  // Raw results.json from the workflow artifact, kept for debugging a
+  // disputed grade without re-running the workflow.
+  rawResults  Json?
+  createdAt   DateTime @default(now())
+
+  assignmentRepo AssignmentRepo        @relation(fields: [assignmentRepoId], references: [id], onDelete: Cascade)
+  testResults    AutogradeTestResult[]
+
+  @@index([assignmentRepoId])
+  @@map("autograde_runs")
+}
+
+model AutogradeTestResult {
+  id            String  @id @default(cuid())
+  runId         String
+  gradingTestId String?
+  name          String
+  passed        Boolean
+  points        Int     @default(0)
+  maxPoints     Int     @default(0)
+  output        String? @db.Text
+
+  run         AutogradeRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  gradingTest GradingTest? @relation(fields: [gradingTestId], references: [id], onDelete: SetNull)
+
+  @@index([runId])
+  @@map("autograde_test_results")
+}
+
+// ---------------------------------------------------------------------------
+// Operational
+// ---------------------------------------------------------------------------
+
+// Token bucket for GitHub's secondary rate limits, shared across all worker
+// processes. One row per installation; mutating calls consume a token first.
+model GithubRateBudget {
+  installationId BigInt   @id
+  minuteTokens   Float
+  hourTokens     Float
+  minuteRefillAt DateTime
+  hourRefillAt   DateTime
+  // Set when GitHub returns 403 + Retry-After; no call is attempted until it
+  // passes, so we stop digging when already rate limited.
+  blockedUntil   DateTime?
+  updatedAt      DateTime @updatedAt
+
+  @@map("github_rate_budgets")
+}
+
+// Append-only record of consequential actions, especially destructive ones.
+model AuditLog {
+  id          String   @id @default(cuid())
+  classroomId String?
+  actorUserId String?
+  action      String
+  targetType  String?
+  targetId    String?
+  detail      Json?
+  createdAt   DateTime @default(now())
+
+  classroom Classroom? @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  actorUser User?      @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([classroomId, createdAt])
+  @@map("audit_logs")
+}
