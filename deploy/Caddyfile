@@ -1,0 +1,41 @@
+# Caddy obtains and renews a Let's Encrypt certificate for APP_DOMAIN on its own.
+# Nothing to schedule and no certbot cron to forget about.
+#
+# For the first issuance the domain must resolve to this host and port 80 must be
+# reachable, because the ACME HTTP challenge is answered there. If the name is
+# proxied through Cloudflare (orange cloud) leave it DNS-only until the first
+# certificate is issued — see "Deploying" in README.md.
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		# The app holds student grades, so browsers should refuse to talk to it over
+		# plain HTTP once they have seen it over HTTPS. Note this is sticky: a
+		# browser remembers it for max-age, so do not point this name at a
+		# non-TLS service afterwards. One year, no preload — preload is effectively
+		# irreversible.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Nothing here is meant to be framed by another site.
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	reverse_proxy app:3000 {
+		# Next.js builds callback URLs from the Host header, and Auth.js is
+		# configured with trustHost, so the proxy has to pass the real one through
+		# rather than the upstream address.
+		header_up Host {host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}

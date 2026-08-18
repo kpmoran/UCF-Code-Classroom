@@ -382,58 +382,128 @@ handing over `admin:org` on your GitHub organization.
 
 ## Deploying
 
-Every push to `main` publishes a container image to
-`ghcr.io/kpmoran/ucf-code-connect:latest`, built by the `image` job in `ci.yml`
-only after typecheck, lint, unit tests, and the build have passed. Also tagged by
-commit sha, so a rollback is a tag change rather than a rebuild.
+One Linux host, three containers, deployed by GitHub Actions on every green push
+to `main`. Everything under `deploy/` is version-controlled and copied to the
+server each deploy, so the running configuration cannot drift from what is
+reviewed. Secrets live in `/opt/uccc/.env` **on the server only** and are never
+copied, printed, or stored as GitHub secrets.
 
-```bash
-docker run -d --name uccc -p 3000:3000 --env-file .env.production \
-  ghcr.io/kpmoran/ucf-code-connect:latest
+```
+              ┌────────── the host ───────────────────────┐
+  :443 ──────▶│ caddy   automatic TLS, HSTS, gzip         │
+              │   └──▶ app     Next.js + pg-boss worker   │
+              │          └──▶ postgres   no published port│
+              └───────────────────────────────────────────┘
 ```
 
-One container serves the app *and* runs the pg-boss worker, because
-`src/instrumentation.ts` starts the worker in-process. That is deliberate: a
-single-VM course deployment stays one unit. If you ever split them, set
-`RUN_WORKER=false` on the web containers and run one worker separately —
-provisioning, deadline enforcement, and autograde ingestion all live there, so
-without it repositories never leave "queued".
+Caddy is the only container with published ports. Postgres has none at all, so it
+is unreachable from the internet even if the host firewall is wrong, and the app
+has none either — publishing 3000 would serve it over plain HTTP beside the TLS it
+is supposed to be behind.
 
-The entrypoint applies pending migrations before serving. Safe for one container;
-set `RUN_MIGRATIONS=false` and migrate as a separate step if you ever run more
-than one replica, because concurrent `migrate deploy` against one database makes
-the losers fail startup rather than wait.
+### 1. Buy the domain
 
-**Put a reverse proxy in front and terminate TLS there.** Auth.js is configured
-with `trustHost: true`, which it has to be for any self-hosted deployment — it
-builds callback URLs from the `Host` header. That header is only as trustworthy as
-what sets it, so the proxy should set `Host` rather than pass an arbitrary one
-through.
+Cloudflare Registrar sells at cost with no upsells, and its DNS has an API. Pick
+something short that students can type from a slide — `ucfcodeconnect.com`,
+`knightscode.dev`. Then create one record:
 
-Two things the image does not do, by design: it has no `.env`, so every value
-comes from the environment; and it contains no `scripts/`, no tests, and no `e2e/`
-(which carries the sandbox organization and installation ids).
+| Type | Name | Content | Proxy |
+|---|---|---|---|
+| `A` | `@` (or a subdomain) | your server's public IPv4 | **DNS only** at first |
 
-### Verifying a change to the image
+Leave the proxy **off** for the first deploy. Caddy proves it controls the domain
+over plain HTTP on port 80, and Cloudflare's proxy intercepts that. Once a
+certificate has been issued you can switch the proxy on, but set SSL/TLS mode to
+**Full (strict)** when you do — "Flexible" makes Cloudflare talk to your server
+over unencrypted HTTP while showing students a padlock.
 
-The Dockerfile is easy to get subtly wrong in ways that only appear at runtime, so
-build and boot it against a scratch database rather than trusting a green build:
+### 2. Prepare the server
+
+Needs a public IPv4, inbound 22/80/443, and root. Then, once:
 
 ```bash
-docker build -t uccc:local .
-docker exec uccc-postgres createdb -U uccc uccc_dockertest
-docker run --rm -p 3001:3000 \
-  -e DATABASE_URL='postgresql://uccc:uccc_dev_password@host.docker.internal:5433/uccc_dockertest?schema=public' \
-  -e APP_URL='http://localhost:3001' \
-  -e AUTH_SECRET=x -e ENCRYPTION_KEY="$(head -c 32 /dev/zero | base64)" \
-  uccc:local
-curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3001/api/auth/session   # must be 200
+sudo bash deploy/bootstrap.sh code-connect.example.edu
 ```
 
-That last check is not arbitrary. It is the endpoint that returned 500 with
-`UntrustedHost` — breaking every sign-in — on the first working build of this
-image, and neither the 298 unit tests nor the 50 end-to-end tests could see it,
-because Auth.js only enforces host trust when `NODE_ENV=production`.
+That installs Docker, creates `/opt/uccc`, generates `AUTH_SECRET`,
+`ENCRYPTION_KEY`, `GITHUB_WEBHOOK_SECRET` and the Postgres password on the machine
+that will use them, creates an unprivileged `uccc-deploy` user with an SSH key for
+Actions, and prints the values you need. It is idempotent — re-running will not
+overwrite an existing `.env` or key.
+
+Then fill in the four GitHub App values it left blank (`AUTH_GITHUB_ID`,
+`AUTH_GITHUB_SECRET`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`).
+
+**Back up `ENCRYPTION_KEY` somewhere you would trust with a password.** It decrypts
+every stored instructor OAuth token. Lose it and every instructor reconnects; leak
+it and you have handed over `admin:org` on your organization.
+
+### 3. Point the GitHub App at the domain
+
+In the App's settings, three URLs — this is also what finally enables webhooks, so
+autograding results and feedback pull requests stop waiting for a sweep:
+
+| Field | Value |
+|---|---|
+| Homepage URL | `https://your-domain` |
+| Callback URL | `https://your-domain/api/auth/callback/github` |
+| Webhook URL | `https://your-domain/api/webhooks/github` |
+| Webhook secret | the `GITHUB_WEBHOOK_SECRET` from `/opt/uccc/.env` |
+
+Keep `http://localhost:3000/api/auth/callback/github` in the callback list as well
+if you still want local sign-in to work — the field accepts several.
+
+### 4. Give Actions the keys
+
+Settings → Secrets and variables → Actions. Four secrets, from the bootstrap
+output:
+
+| Secret | Value |
+|---|---|
+| `DEPLOY_HOST` | the domain or IP |
+| `DEPLOY_USER` | `uccc-deploy` |
+| `DEPLOY_SSH_KEY` | the private key printed by bootstrap |
+| `DEPLOY_SSH_KNOWN_HOSTS` | the host key printed by bootstrap |
+
+And one **variable** (not a secret): `APP_DOMAIN`, your domain. The deploy uses it
+to check the public URL actually answers.
+
+`DEPLOY_SSH_KNOWN_HOSTS` is required rather than optional. The alternative is
+`StrictHostKeyChecking=no`, which would let anything answering on that address
+receive a deploy — and the deploy carries a registry token.
+
+### How a deploy runs
+
+`deploy.yml` triggers on `CI` completing successfully on `main`, so a deploy can
+only run for a commit that passed typecheck, lint, the unit tests and the build,
+and whose image therefore exists. It pins the image to `sha-<commit>` rather than
+`latest`, so what is running is always traceable to a commit.
+
+Then: copy `deploy/`, log the server in to GHCR with *this run's* token so no
+long-lived registry credential sits on the host, pull, `up -d` (the entrypoint
+applies pending migrations), wait for the container healthcheck, then check
+`https://your-domain/api/health` from outside. Those last two are separate on
+purpose — the first says the app started, the second says DNS, the certificate and
+the proxy work, and they fail for entirely different reasons.
+
+**If health never goes green it rolls back** to the image that was running before,
+so a bad deploy is a failed workflow rather than an outage.
+
+To roll back by hand, run the Deploy workflow with a `tag` of `sha-<commit>`.
+
+### Operating it
+
+```bash
+cd /opt/uccc
+docker compose ps                      # what is running
+docker compose logs -f app             # application and job worker
+docker compose exec postgres psql -U uccc -d uccc
+docker compose exec -T postgres pg_dump -U uccc uccc | gzip > ~/uccc-$(date +%F).sql.gz
+```
+
+Nothing here backs up the database automatically. One `pg_dump` on a nightly cron,
+copied off the box, is the difference between a bad afternoon and losing a
+semester of grades.
 
 ## Notes on Prisma 7
 

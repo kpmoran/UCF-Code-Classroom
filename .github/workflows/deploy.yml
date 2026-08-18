@@ -1,0 +1,216 @@
+name: Deploy
+
+# Deploys the image CI already built and published, to the single Linux host
+# described in deploy/. Triggered by CI finishing successfully on main, so a
+# deploy can only ever run for a commit that passed typecheck, lint, the unit
+# tests and the build — and whose image therefore exists.
+#
+# `workflow_run` rather than `push` because the image is produced by a job in
+# ci.yml, and one workflow cannot `needs:` a job in another.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to deploy — e.g. sha-<commit> to roll back. Defaults to latest.'
+        required: false
+        type: string
+
+# Never two deploys at once, and do not cancel one midway: a half-applied deploy
+# is how you end up with a stopped container and no running replacement.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # The server pulls the image using this run's token, so no long-lived registry
+  # credential has to be stored on the host.
+  packages: read
+
+jobs:
+  preflight:
+    name: Check the deploy is configured
+    runs-on: ubuntu-latest
+    # A failed or cancelled CI run must not deploy. workflow_dispatch has no
+    # workflow_run context, hence the first clause.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: check
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        run: |
+          missing=()
+          [ -n "$HOST" ]  || missing+=(DEPLOY_HOST)
+          [ -n "$USER" ]  || missing+=(DEPLOY_USER)
+          [ -n "$KEY" ]   || missing+=(DEPLOY_SSH_KEY)
+          [ -n "$KNOWN" ] || missing+=(DEPLOY_SSH_KNOWN_HOSTS)
+          if [ ${#missing[@]} -eq 0 ]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo "::warning title=Deploy skipped::Not configured yet. Missing: ${missing[*]}. See \"Deploying\" in README.md."
+          fi
+
+      - id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # Pin to the exact commit rather than `latest`, so the running container
+          # is always traceable to a commit and a rollback is just another tag.
+          if [ -n "$INPUT_TAG" ]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          elif [ -n "$HEAD_SHA" ]; then
+            echo "tag=sha-$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo 'tag=latest' >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    name: Deploy to the server
+    needs: preflight
+    if: needs.preflight.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+      TAG: ${{ needs.preflight.outputs.tag }}
+      APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+      SSH_TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # workflow_run checks out the default branch by default, which for a
+          # rollback would copy the wrong compose file. Pin to the commit the
+          # image was built from.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up SSH
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # Pinned host key rather than StrictHostKeyChecking=no. Disabling it
+          # would let anything that can answer on that address receive the deploy
+          # — and the deploy carries a registry token.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Record what is currently running
+        id: current
+        run: |
+          set -euo pipefail
+          current=$(ssh -o BatchMode=yes "$SSH_TARGET" \
+            "docker inspect --format='{{.Config.Image}}' uccc-app-1 2>/dev/null || true")
+          echo "Currently running: ${current:-<nothing>}"
+          echo "image=${current}" >> "$GITHUB_OUTPUT"
+
+      - name: Copy the compose files
+        run: |
+          set -euo pipefail
+          # Version-controlled infrastructure: these come from the repo every
+          # deploy so the server cannot drift from what is reviewed. `.env` is
+          # deliberately not copied — the secrets live only on the host.
+          scp -o BatchMode=yes deploy/docker-compose.yml deploy/Caddyfile "$SSH_TARGET:/opt/uccc/"
+
+      # Two calls, each doing one thing. A single call cannot both send a script on
+      # stdin and pipe the registry token in on stdin — the second redirection wins
+      # and the script silently never arrives.
+      - name: Log the server in to the registry
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # This run's GITHUB_TOKEN, valid only while the job runs, piped to
+          # --password-stdin so it is never an argument and never written to disk.
+          printf '%s' "$REGISTRY_TOKEN" | ssh -o BatchMode=yes "$SSH_TARGET" \
+            "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+
+      - name: Pull and start
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes "$SSH_TARGET" bash -euo pipefail -s -- "$TAG" <<'REMOTE'
+          cd /opt/uccc
+          export IMAGE_TAG="$1"
+          docker compose pull app
+          # The container entrypoint applies pending migrations before serving.
+          docker compose up -d --remove-orphans
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          docker image prune -f --filter 'until=168h' >/dev/null 2>&1 || true
+          REMOTE
+
+      - name: Wait for the app to become healthy on the host
+        run: |
+          set -euo pipefail
+          # Reads the healthcheck compose already runs against /api/health, rather
+          # than shipping a second probe through three layers of quoting.
+          #
+          # Checked on the host first, because "the app did not start" and "DNS or
+          # TLS is wrong" are different problems with different fixes.
+          for i in $(seq 1 40); do
+            status=$(ssh -o BatchMode=yes "$SSH_TARGET" \
+              "docker inspect --format='{{.State.Health.Status}}' uccc-app-1 2>/dev/null || true")
+            echo "attempt $i: ${status:-unknown}"
+            [ "$status" = healthy ] && exit 0
+            [ "$status" = unhealthy ] && break
+            sleep 6
+          done
+          echo '::error title=Deploy failed::The app never reported healthy on the host.'
+          ssh -o BatchMode=yes "$SSH_TARGET" 'cd /opt/uccc && docker compose logs --tail=60 app' || true
+          exit 1
+
+      - name: Check the public URL
+        if: vars.APP_DOMAIN != ''
+        run: |
+          set -euo pipefail
+          # Proves DNS, the certificate and the proxy — not just the container.
+          for i in $(seq 1 20); do
+            code=$(curl -fsS -o /dev/null -w '%{http_code}' "https://${APP_DOMAIN}/api/health" || echo 000)
+            echo "attempt $i: $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 6
+          done
+          echo "::error title=Not reachable::https://${APP_DOMAIN}/api/health did not answer 200. The app is healthy on the host, so look at DNS, port 443, or the certificate."
+          exit 1
+
+      - name: Roll back
+        if: failure() && steps.current.outputs.image != ''
+        run: |
+          set -euo pipefail
+          echo "::warning title=Rolling back::Restoring ${{ steps.current.outputs.image }}"
+          previous='${{ steps.current.outputs.image }}'
+          ssh -o BatchMode=yes "$SSH_TARGET" \
+            "cd /opt/uccc && IMAGE_TAG='${previous##*:}' docker compose up -d app"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Deploy"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Image | \`${IMAGE}:${TAG}\` |"
+            echo "| Host | \`${{ secrets.DEPLOY_HOST }}\` |"
+            echo "| URL | ${APP_DOMAIN:+https://$APP_DOMAIN} |"
+            echo "| Result | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

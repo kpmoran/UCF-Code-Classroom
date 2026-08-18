@@ -1,0 +1,77 @@
+# Production stack for a single Linux host.
+#
+# Three containers: the app (which also runs the pg-boss worker in-process),
+# Postgres, and Caddy terminating TLS. Deployed by .github/workflows/deploy.yml,
+# which copies this file and the Caddyfile to the server and runs `up -d`.
+#
+# Secrets live in `.env` next to this file, on the server, and never travel
+# through GitHub. Only the image tag comes from the deploy.
+
+name: uccc
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-uccc}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Deliberately no `ports:`. Postgres is reachable only on the compose network,
+    # so it is not exposed to the internet even if the host firewall is wrong.
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  app:
+    # Pinned by the deploy to a commit sha, so what is running is always traceable
+    # to a commit and a rollback is a tag change rather than a rebuild.
+    image: ghcr.io/kpmoran/ucf-code-connect:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # No host port either: Caddy reaches it over the compose network. Publishing
+    # 3000 would expose the app on plain HTTP alongside the TLS it is meant to be
+    # behind.
+    expose:
+      - '3000'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      # Caddy requests a certificate for exactly this name, so it has to match DNS.
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and account keys. Losing this volume means re-issuing, which
+      # Let's Encrypt rate-limits, so it is a named volume rather than a temp dir.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

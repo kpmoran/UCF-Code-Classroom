@@ -16,6 +16,10 @@ const PUBLIC_PREFIXES = [
   '/api/auth',
   // GitHub posts here with an HMAC signature rather than a session cookie.
   '/api/webhooks',
+  // The deploy gate and the container health check cannot sign in. Left behind the
+  // cookie wall it answers 307 to /signin, which reads as a healthy 3xx to some
+  // probes and as a failure to others — either way it stops being a health check.
+  '/api/health',
   '/join', // Invite links: the landing page itself explains sign-in.
 ]
 

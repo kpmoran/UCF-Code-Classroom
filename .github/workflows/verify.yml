@@ -120,8 +120,33 @@ jobs:
       - name: Apply migrations
         run: npm run db:deploy
 
+      # Cached, because the browser download is the slow part and it does not change
+      # between runs. Keyed on the resolved Playwright version so a bump invalidates
+      # it rather than silently running an old browser against a new client.
+      - name: Resolve the Playwright version
+        id: pw
+        run: |
+          echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Chromium download
+        id: pw_cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      # System libraries, which apt handles and the cache above does not cover.
+      - name: Install browser system dependencies
+        timeout-minutes: 8
+        run: npx playwright install-deps chromium
+
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        # Bounded separately from the job. One run spent its entire 30-minute budget
+        # stuck here and was killed mid-install, which surfaced as a cancelled job
+        # with no test results — indistinguishable at a glance from a real failure.
+        # Failing fast here says what actually went wrong.
+        timeout-minutes: 8
+        run: npx playwright install chromium
 
       - name: End-to-end tests
         run: npm run test:e2e
