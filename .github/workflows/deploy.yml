@@ -72,11 +72,25 @@ jobs:
           # Pin to the exact commit rather than `latest`, so the running container
           # is always traceable to a commit and a rollback is just another tag.
           if [ -n "$INPUT_TAG" ]; then
-            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            resolved="$INPUT_TAG"; why='requested by hand'
           elif [ -n "$HEAD_SHA" ]; then
-            echo "tag=sha-$HEAD_SHA" >> "$GITHUB_OUTPUT"
+            resolved="sha-$HEAD_SHA"; why='the commit CI built'
           else
-            echo 'tag=latest' >> "$GITHUB_OUTPUT"
+            resolved=latest; why='no commit in the event payload — FALLBACK'
+          fi
+          echo "tag=$resolved" >> "$GITHUB_OUTPUT"
+
+          # Logged and summarised even when the deploy is skipped, so the pinning is
+          # verifiable rather than a claim. `latest` here means the sha was missing
+          # and traceability was silently lost, which is worth seeing.
+          echo "Resolved image tag: $resolved ($why)"
+          {
+            echo "### Deploy target"
+            echo
+            echo "- Image tag: \`$resolved\` — $why"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$resolved" = latest ] && [ -z "$INPUT_TAG" ]; then
+            echo '::warning title=Unpinned::Falling back to :latest because the event carried no head_sha, so this deploy is not traceable to a commit.'
           fi
 
   deploy:
