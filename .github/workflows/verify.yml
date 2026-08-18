@@ -1,0 +1,209 @@
+name: Verify against GitHub
+
+# The end-to-end and integration suites drive a real GitHub organization: they
+# generate repositories from templates, invite collaborators, create teams, and
+# delete all of it again. That is deliberate — the bugs this project actually hit
+# (asynchronous template copies, org owners masking permission changes, a missing
+# Workflows permission surfacing as a generic 403) are invisible to a mock.
+#
+# The cost is that these cannot run on every push:
+#
+#   * They need App credentials, which pull requests from forks cannot see.
+#   * Both suites raise the rate budget to 40 content-creating calls per minute.
+#     GitHub's secondary limit is 80 per minute per installation, so two runs at
+#     once sit exactly on the ceiling.
+#   * They use fixed repository and team names in one shared organization, so two
+#     concurrent runs collide on the resources themselves.
+#
+# Hence: main, nightly, or on request — and never two at a time.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # 07:17 UTC ~ 03:17 Eastern. Off-peak, and the odd minute avoids the
+    # top-of-hour crowd that makes scheduled runs queue.
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+
+# Serialize every run of this workflow across the whole repository. Not cancelled
+# in progress: a half-finished run leaves repositories behind in the sandbox
+# organization, and the cleanup steps only happen if the job reaches them.
+concurrency:
+  group: github-sandbox
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # The `secrets` context is not available in a job-level `if:`, only inside a
+  # step. So configuration is detected here and exported as an output that the
+  # real jobs can gate on. Without this, a fork's pull request — or this repo
+  # before the secrets are added — fails with an opaque GitHub 401 rather than
+  # saying what is missing.
+  preflight:
+    name: Check credentials are configured
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          APP_ID: ${{ secrets.SANDBOX_APP_ID }}
+          APP_KEY: ${{ secrets.SANDBOX_APP_PRIVATE_KEY }}
+        run: |
+          if [ -n "$APP_ID" ] && [ -n "$APP_KEY" ]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo '::warning title=Skipped::SANDBOX_APP_ID and SANDBOX_APP_PRIVATE_KEY are not set, so the GitHub suites were skipped. See "Continuous integration" in README.md.'
+          fi
+
+  e2e:
+    name: End-to-end (Playwright, real repositories)
+    needs: preflight
+    if: needs.preflight.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: uccc
+          POSTGRES_PASSWORD: uccc_ci_password
+          POSTGRES_DB: uccc
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U uccc -d uccc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://uccc:uccc_ci_password@localhost:5432/uccc?schema=public
+      APP_URL: http://localhost:3000
+      GITHUB_APP_ID: ${{ secrets.SANDBOX_APP_ID }}
+      GITHUB_APP_PRIVATE_KEY: ${{ secrets.SANDBOX_APP_PRIVATE_KEY }}
+      # The organization and installation the suites target. Repository variables
+      # so they can be repointed without editing this file; the defaults are the
+      # current sandbox.
+      VERIFY_ORG: ${{ vars.VERIFY_ORG || 'ucf-code-connect-sandbox' }}
+      VERIFY_INSTALLATION_ID: ${{ vars.VERIFY_INSTALLATION_ID || '154461207' }}
+      RUN_WORKER: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Generated per run rather than stored. Nothing survives between runs that
+      # would need to decrypt with the same key, and the webhook secret only has
+      # to be non-empty here: requireGitHubAppConfig() insists on all three App
+      # values, but no test posts a webhook, so its value is never checked
+      # against a signature.
+      - name: Generate ephemeral secrets
+        run: |
+          {
+            echo "AUTH_SECRET=$(openssl rand -base64 32)"
+            echo "ENCRYPTION_KEY=$(openssl rand -base64 32)"
+            echo "GITHUB_WEBHOOK_SECRET=$(openssl rand -hex 32)"
+          } >> "$GITHUB_ENV"
+
+      - name: Apply migrations
+        run: npm run db:deploy
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: npm run test:e2e
+
+      # Runs even on failure: a failed assertion can leave behind the unique
+      # emails and classrooms that would break the next run's upserts.
+      - name: Remove test data
+        if: always()
+        run: npm run db:clean-tests
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+  integration:
+    name: Integration (real GitHub API)
+    # Sequential after e2e, not parallel with it. Both raise their budget to 40
+    # content-creating calls per minute against the same installation, whose
+    # secondary limit is 80 per minute — running them together would sit on the
+    # ceiling and start returning 403s that look like product bugs.
+    needs: [preflight, e2e]
+    if: needs.preflight.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: uccc
+          POSTGRES_PASSWORD: uccc_ci_password
+          POSTGRES_DB: uccc
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U uccc -d uccc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://uccc:uccc_ci_password@localhost:5432/uccc?schema=public
+      APP_URL: http://localhost:3000
+      GITHUB_APP_ID: ${{ secrets.SANDBOX_APP_ID }}
+      GITHUB_APP_PRIVATE_KEY: ${{ secrets.SANDBOX_APP_PRIVATE_KEY }}
+      # The organization and installation the suites target. Repository variables
+      # so they can be repointed without editing this file; the defaults are the
+      # current sandbox.
+      VERIFY_ORG: ${{ vars.VERIFY_ORG || 'ucf-code-connect-sandbox' }}
+      VERIFY_INSTALLATION_ID: ${{ vars.VERIFY_INSTALLATION_ID || '154461207' }}
+      RUN_WORKER: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Generate ephemeral secrets
+        run: |
+          {
+            echo "AUTH_SECRET=$(openssl rand -base64 32)"
+            echo "ENCRYPTION_KEY=$(openssl rand -base64 32)"
+            echo "GITHUB_WEBHOOK_SECRET=$(openssl rand -hex 32)"
+          } >> "$GITHUB_ENV"
+
+      - name: Apply migrations
+        run: npm run db:deploy
+
+      - name: Integration tests
+        run: npm run test:github
+
+      - name: Remove test data
+        if: always()
+        run: npm run db:clean-tests
