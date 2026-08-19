@@ -6,16 +6,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { requireFaculty } from '@/lib/auth/dal'
 import { db } from '@/lib/db'
 import { GitHubDomainError } from '@/lib/github/errors'
-import { listAppInstallations, type InstallationSummary } from '@/lib/github/operations/orgs'
+import {
+  getAppPublicUrl,
+  listInstallationsForUser,
+  type InstallationSummary,
+} from '@/lib/github/operations/orgs'
 
 export default async function NewClassroomPage() {
-  await requireFaculty()
+  const user = await requireFaculty()
 
   let installations: InstallationSummary[] = []
+  let foreign = 0
+  let unverifiable = 0
   let loadError: string | null = null
 
   try {
-    installations = await listAppInstallations()
+    // Only organizations this person belongs to. The installation list is App-wide,
+    // so without filtering it would offer every colleague's organization.
+    const mine = await listInstallationsForUser(user.githubLogin)
+    installations = mine.belongs
+    foreign = mine.foreign
+    unverifiable = mine.unverifiable
   } catch (error) {
     loadError =
       error instanceof GitHubDomainError
@@ -33,6 +44,10 @@ export default async function NewClassroomPage() {
   const available = installations.filter(
     (i) => !usedOrgIds.has(i.orgId.toString()),
   )
+
+  // Derived from the API, not configured: the slug differs per App registration, and a
+  // hardcoded link would point colleagues at the wrong App.
+  const appUrl = await getAppPublicUrl()
 
   return (
     <>
@@ -70,8 +85,8 @@ export default async function NewClassroomPage() {
               <CardTitle>No GitHub organization available</CardTitle>
               <CardDescription>
                 {installations.length === 0
-                  ? 'The UCF-Code-Connect app is not installed on any organization yet.'
-                  : 'Every organization the app is installed on already has a classroom.'}
+                  ? 'The app is not installed on any organization you belong to.'
+                  : 'Every organization you belong to already has a classroom.'}
               </CardDescription>
             </CardHeader>
             <CardContent className="text-sm space-y-3">
@@ -84,31 +99,95 @@ export default async function NewClassroomPage() {
                   ))}
                 </ul>
               ) : null}
+
               <p className="text-muted">
-                Install the app on the organization for this course, granting access to{' '}
-                <strong>all repositories</strong> — it needs to create repositories that do
-                not exist yet.
+                {installations.length === 0
+                  ? 'Install it on the organization for your course, granting access to all repositories — it needs to create repositories that do not exist yet.'
+                  : 'To use a different organization, install the app there too, granting access to all repositories.'}
               </p>
-              <p>
-                <a
-                  href="https://github.com/settings/installations"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-accent hover:underline font-medium"
-                >
-                  Manage GitHub app installations →
-                </a>
-              </p>
+
+              {appUrl ? (
+                <p>
+                  <a
+                    href={`${appUrl}/installations/new`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-accent hover:underline font-medium"
+                  >
+                    Install the app on an organization →
+                  </a>
+                </p>
+              ) : null}
+
+              {/*
+               * Named explicitly, because otherwise someone who knows the app is
+               * installed somewhere sees "not installed" and reasonably concludes the
+               * page is broken. It is not: those organizations are simply not theirs.
+               */}
+              {foreign > 0 ? (
+                <p className="text-xs text-muted">
+                  {foreign} other {foreign === 1 ? 'organization has' : 'organizations have'}{' '}
+                  the app installed, but you are not a member, so {foreign === 1 ? 'it is' : 'they are'}{' '}
+                  not offered here.
+                </p>
+              ) : null}
+
+              {unverifiable > 0 ? (
+                <p className="text-xs text-warning">
+                  {unverifiable}{' '}
+                  {unverifiable === 1 ? 'organization was' : 'organizations were'} skipped
+                  because your membership could not be confirmed just now. Reload to retry.
+                </p>
+              ) : null}
+
+              {appUrl ? (
+                <p className="text-xs text-muted">
+                  App page:{' '}
+                  <a href={appUrl} target="_blank" rel="noreferrer" className="underline">
+                    {appUrl.replace('https://', '')}
+                  </a>
+                </p>
+              ) : null}
             </CardContent>
           </Card>
         ) : (
-          <NewClassroomForm
-            installations={available.map((i) => ({
-              installationId: i.installationId.toString(),
-              orgLogin: i.orgLogin,
-              repositorySelection: i.repositorySelection,
-            }))}
-          />
+          <>
+            <NewClassroomForm
+              installations={available.map((i) => ({
+                installationId: i.installationId.toString(),
+                orgLogin: i.orgLogin,
+                repositorySelection: i.repositorySelection,
+              }))}
+            />
+
+            {/*
+             * Shown even when the list is not empty. The organization someone wants is
+             * often simply one the app has not been installed on yet, and without this
+             * the only signal is an absence — a dropdown that does not contain what they
+             * are looking for, with nothing explaining why or what to do.
+             */}
+            <p className="mt-4 text-xs text-muted">
+              Only organizations you are a member of appear here.
+              {appUrl ? (
+                <>
+                  {' '}
+                  Want to use a different one?{' '}
+                  <a
+                    href={`${appUrl}/installations/new`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    Install the app on that organization
+                  </a>{' '}
+                  as well, granting access to all repositories.
+                </>
+              ) : null}
+              {foreign > 0
+                ? ` ${foreign} further ${foreign === 1 ? 'organization has' : 'organizations have'} the app installed but you are not a member of ${foreign === 1 ? 'it' : 'them'}.`
+                : ''}
+            </p>
+          </>
         )}
       </main>
     </>

@@ -88,24 +88,55 @@ export async function createClassroom(formData: FormData): Promise<ActionResult<
     }
   }
 
-  // Warn-not-block on ownership: everything except group assignments works for a
-  // non-owner, and blocking here would strand an instructor whose promotion to
-  // Owner is still pending.
+  /*
+   * Membership is a hard gate; being an Owner is only a warning.
+   *
+   * The list of installations is App-wide, so without this check any faculty member
+   * could point a classroom at a colleague's organization — and then assignments would
+   * create repositories there with an installation token holding
+   * `Administration: write`. The picker filters to the same rule, but a form can be
+   * posted directly, so the enforcement has to be here.
+   *
+   * Ownership stays warn-not-block on purpose: everything except group assignments
+   * works for a plain member, and blocking would strand an instructor whose promotion
+   * to Owner has not come through yet.
+   */
+  if (!user.githubLogin) {
+    return {
+      ok: false,
+      error:
+        'Your account has no linked GitHub login, so your membership of that organization cannot be confirmed.',
+    }
+  }
+
   let ownershipWarning: string | null = null
   try {
-    if (user.githubLogin) {
-      const ownership = await checkOrgOwnership(
-        installation.installationId,
-        installation.orgLogin,
-        user.githubLogin,
-      )
-      if (!ownership.isOwner) ownershipWarning = ownership.reason
+    const ownership = await checkOrgOwnership(
+      installation.installationId,
+      installation.orgLogin,
+      user.githubLogin,
+    )
+
+    // role === null is the 404 case: not a member of that organization at all.
+    if (!ownership.isOwner && ownership.role === null) {
+      return {
+        ok: false,
+        error: `You are not a member of ${installation.orgLogin}, so you cannot create a classroom in it. Install the app on an organization you belong to instead.`,
+      }
     }
+
+    if (!ownership.isOwner) ownershipWarning = ownership.reason
   } catch (error) {
-    ownershipWarning =
-      error instanceof GitHubDomainError
-        ? error.userMessage
-        : 'Could not confirm your organization role.'
+    // Refused rather than allowed with a warning: an unverifiable membership is the
+    // exact case this gate exists for, and a transient GitHub error is not a reason to
+    // reopen it.
+    return {
+      ok: false,
+      error:
+        error instanceof GitHubDomainError
+          ? `Could not confirm your membership of ${installation.orgLogin}: ${error.userMessage}`
+          : `Could not confirm your membership of ${installation.orgLogin}. Try again shortly.`,
+    }
   }
 
   const slug = dedupeSlug(buildClassroomSlug({ name, courseCode, term }), await takenSlugs())

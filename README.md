@@ -266,6 +266,45 @@ forced-dark one — and only for readers whose system setting opposed their choi
 is why it survived review on machines that agreed with their owner. Any `dark:` utility
 added later would have inherited the same fault.
 
+### One App, many organizations
+
+Each faculty member installs the GitHub App on **their own** organization — a classroom
+is bound to an organization and an installation, and the installation token is what
+creates repositories there. Adding an App to an organization requires being an owner of
+it, so this is not something an administrator can do on someone's behalf.
+
+Their path is: accept a faculty invitation, install the App on their organization
+granting access to **all repositories**, then create a classroom and pick it. The
+install link is shown on the new-classroom page and derived from the API rather than
+configured, because the App slug differs per registration and a hardcoded URL would
+point colleagues at the wrong App.
+
+**No Marketplace listing is needed.** Marketplace is for public distribution and wants a
+verified publisher, a listing and review. An App set to *Any account* is installable by
+anyone with the URL, which is all this needs.
+
+#### The organization picker is filtered by membership
+
+`GET /app/installations` returns **every** installation of the App, App-wide. Offering
+that list directly was fine with one user and became a multi-tenancy hole with two: a
+faculty member could point a classroom at a colleague's organization, and assignments
+would then generate repositories there using an installation token holding
+`Administration: write`. The ownership check downstream only *warns*, so it did not stop
+this.
+
+So membership is a hard gate, enforced both in the picker and in `createClassroom` —
+a filtered dropdown is not a permission check, since a form can be posted directly.
+Membership is a much weaker claim than ownership, which is the point: you cannot be a
+member of an organization you have nothing to do with. Ownership stays warn-not-block,
+because everything except group assignments works for a plain member and blocking would
+strand an instructor mid-promotion.
+
+Organizations that have the App but that you do not belong to are **named in a count**
+rather than silently dropped — otherwise someone who knows the App is installed
+somewhere sees "not installed" and reasonably concludes the page is broken. An
+organization whose membership could not be confirmed is excluded and reported too, since
+an unverifiable membership is exactly the case the gate exists for.
+
 ### Signing in is open, deliberately
 
 Anyone with a GitHub account can sign in. That is a decision, not an oversight, and it

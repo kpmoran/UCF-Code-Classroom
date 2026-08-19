@@ -109,6 +109,103 @@ export async function checkOrgOwnership(
   }
 }
 
+/**
+ * The App's own public page on GitHub, for "install it somewhere else" links.
+ *
+ * Read from the API rather than configured, because the slug differs per deployment —
+ * this repository is run against more than one App registration — and a hardcoded URL
+ * would silently point colleagues at somebody else's App.
+ */
+export async function getAppPublicUrl(): Promise<string | null> {
+  try {
+    // Typed as nullable because the endpoint is shared with other auth modes.
+    const { data } = await getAppOctokit().rest.apps.getAuthenticated()
+    if (!data) return null
+    if (data.html_url) return data.html_url
+    return data.slug ? `https://github.com/apps/${data.slug}` : null
+  } catch {
+    // Cosmetic. A missing link is worth far less than a failed page render.
+    return null
+  }
+}
+
+/**
+ * Does this membership check mean the user belongs to the organization?
+ *
+ * Extracted and pure so the decision itself is unit tested. The end-to-end suite can
+ * show the picker offering nothing, but it cannot isolate this rule from Next.js's own
+ * request handling — and this rule is the whole gate.
+ *
+ * `role: null` is the 404 case: not a member at all, which is the only answer that
+ * excludes. An Owner belongs, a plain member belongs, and someone with a *pending*
+ * invitation belongs too — the same reason the Owner check warns rather than blocks, so
+ * that an instructor mid-promotion is not stranded.
+ */
+export function belongsToOrg(check: OrgOwnershipCheck): boolean {
+  return check.isOwner || check.role !== null
+}
+
+export type UserInstallations = {
+  /** Organizations the user actually belongs to. */
+  belongs: InstallationSummary[]
+  /** Installed, but the user is not a member — deliberately not offered. */
+  foreign: number
+  /** Membership could not be confirmed; excluded rather than assumed. */
+  unverifiable: number
+}
+
+/**
+ * Installations the signed-in user may build a classroom in.
+ *
+ * `listAppInstallations` returns every installation of the App, App-wide. That was
+ * harmless while one person used this, and became a multi-tenancy hole the moment a
+ * second faculty member existed: the picker offered them every colleague's
+ * organization, the ownership check downstream only *warns*, and assignments in such a
+ * classroom would generate repositories in somebody else's org using an installation
+ * token that holds `Administration: write` there.
+ *
+ * So membership is the gate. Being a member is a much weaker claim than being an Owner
+ * — that check still runs, and still only warns, because a pending promotion should not
+ * strand an instructor — but you cannot be a member of an organization you have nothing
+ * to do with, which is exactly the case being excluded.
+ *
+ * A pending invitation counts as belonging, for the same reason the Owner check warns
+ * rather than blocks.
+ */
+export async function listInstallationsForUser(
+  username: string | null,
+): Promise<UserInstallations> {
+  const all = await listAppInstallations()
+
+  // No linked GitHub login means no way to establish membership in anything.
+  if (!username) return { belongs: [], foreign: all.length, unverifiable: 0 }
+
+  const results = await Promise.all(
+    all.map(async (installation) => {
+      try {
+        const check = await checkOrgOwnership(
+          installation.installationId,
+          installation.orgLogin,
+          username,
+        )
+        // role === null is the 404 case: not a member at all.
+        return { installation, belongs: belongsToOrg(check), failed: false }
+      } catch {
+        // Excluded rather than included. Offering an organization whose membership we
+        // could not confirm is the failure this function exists to prevent, and a
+        // transient GitHub error is not a reason to reopen it.
+        return { installation, belongs: false, failed: true }
+      }
+    }),
+  )
+
+  return {
+    belongs: results.filter((r) => r.belongs).map((r) => r.installation),
+    foreign: results.filter((r) => !r.belongs && !r.failed).length,
+    unverifiable: results.filter((r) => r.failed).length,
+  }
+}
+
 /** Org members, used to tell "not invited" from "invited but not accepted". */
 export async function listOrgMembers(
   installationId: bigint,

@@ -266,3 +266,65 @@ test('a revoked invitation can no longer be redeemed after revoking it in the UI
   // No stray alert on the admin page from the revoke.
   await expect(appAlert(page)).toHaveCount(0)
 })
+
+test('a faculty member is not offered organizations they do not belong to', async ({
+  page,
+  context,
+}) => {
+  /*
+   * The multi-tenancy gate. listAppInstallations is App-wide, so before this the picker
+   * offered every colleague's organization — and the ownership check downstream only
+   * warns, so a classroom could be created in someone else's org and generate
+   * repositories there with an installation token holding Administration: write.
+   *
+   * This colleague is faculty but a member of nothing, so the page must offer nothing
+   * and must say why rather than looking broken.
+   */
+  const colleague = await seedSession('e2e-other-faculty')
+  await db.user.update({ where: { id: colleague.id }, data: { isFaculty: true } })
+  await applySession(context, colleague)
+
+  await page.goto('/classrooms/new')
+  await expect(page.getByRole('heading', { name: 'No GitHub organization available' })).toBeVisible()
+  await expect(page.getByText(/not installed on any organization you belong to/i)).toBeVisible()
+
+  // The sandbox org has the app installed, so this must be acknowledged rather than
+  // presented as "nothing is installed", which would read as a broken page.
+  await expect(page.getByText(/you are not a member/i)).toBeVisible()
+
+  // And the way out is a link to the App, derived from the API rather than hardcoded.
+  await expect(page.getByRole('link', { name: /Install the app on an organization/ })).toBeVisible()
+})
+
+test('the create action refuses an organization the caller is not a member of', async ({
+  page,
+  context,
+}) => {
+  // A filtered dropdown is not a permission check, so this posts directly.
+  //
+  // Honest about its limits: Next.js rejects an unrecognised server-action request
+  // before the action body runs, so what this proves is the outcome — no classroom
+  // appears — rather than that the membership gate specifically refused it. The gate's
+  // own decision is unit tested in lib/github/orgMembership.test.ts, and the picker
+  // side of it is covered by the test above.
+  const colleague = await seedSession('e2e-other-faculty')
+  await db.user.update({ where: { id: colleague.id }, data: { isFaculty: true } })
+  await applySession(context, colleague)
+
+  const before = await db.classroom.count()
+
+  await page.goto('/')
+  const status = await page.evaluate(async () => {
+    const body = new FormData()
+    body.set('name', 'Smash And Grab')
+    body.set('courseCode', 'EVIL1')
+    body.set('term', 'Fall 2026')
+    // The real sandbox installation, which this account has nothing to do with.
+    body.set('installationId', '154461207')
+    const res = await fetch('/classrooms/new', { method: 'POST', body })
+    return res.status
+  })
+
+  expect(status).not.toBe(200)
+  expect(await db.classroom.count()).toBe(before)
+})
