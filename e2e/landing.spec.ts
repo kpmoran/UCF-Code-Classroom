@@ -73,26 +73,40 @@ test('/signin still works, because invite links depend on it', async ({ page }) 
   await expect(page.getByRole('button', { name: /Continue with GitHub/ })).toBeVisible()
 })
 
-test('reduced motion stops the animation without hiding the content', async ({ browser }) => {
-  // The trap: disabling an entrance animation that starts at opacity 0 leaves the
-  // content permanently invisible. Someone who asked not to see motion would get a
-  // blank page, which is a far worse outcome than the animation.
+test('the animation plays even when reduced motion is requested', async ({ browser }) => {
+  // A deliberate product decision, pinned here so it cannot be reverted by accident —
+  // and so anyone reading the suite can see it was chosen rather than overlooked.
   const context = await browser.newContext({ reducedMotion: 'reduce' })
   const page = await context.newPage()
   await page.goto('/')
 
-  const invisible = await page
-    .locator('.uccc-rise')
-    .evaluateAll((els) => els.filter((e) => getComputedStyle(e).opacity !== '1').length)
-  expect(invisible).toBe(0)
-
   const animating = await page
     .locator('.uccc-flow')
     .evaluateAll((els) => els.filter((e) => getComputedStyle(e).animationName !== 'none').length)
-  expect(animating).toBe(0)
+  expect(animating).toBeGreaterThan(0)
 
-  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   await context.close()
+})
+
+test('content is never left invisible, under either motion preference', async ({ browser }) => {
+  // Independent of the decision above and non-negotiable: uccc-rise starts at opacity 0,
+  // so any future change that disables the animation without restoring opacity would
+  // leave the page blank. That is a worse failure than either motion setting, and it is
+  // the one that would be easy to ship without noticing.
+  for (const reducedMotion of ['reduce', 'no-preference'] as const) {
+    const context = await browser.newContext({ reducedMotion })
+    const page = await context.newPage()
+    await page.goto('/')
+    await page.waitForTimeout(900) // let the entrance animation finish
+
+    const invisible = await page
+      .locator('.uccc-rise')
+      .evaluateAll((els) => els.filter((e) => getComputedStyle(e).opacity !== '1').length)
+    expect(invisible, `with reducedMotion=${reducedMotion}`).toBe(0)
+
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+    await context.close()
+  }
 })
 
 test('the diagram carries a text alternative and is repeated in prose', async ({ page }) => {

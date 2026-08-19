@@ -156,14 +156,12 @@ body {
 /*
  * Landing-page motion.
  *
- * One rule, one place to switch it off. Everything animated on the marketing page
- * uses these classes, so `prefers-reduced-motion` below disables the lot — including
- * anything added later, which is the point of routing it through here rather than
- * writing per-element animations.
+ * Everything animated on the marketing page uses these two classes, so the behaviour
+ * can be changed in one place rather than per element. See the note below the
+ * keyframes about reduced motion, which is currently deliberately not honoured.
  *
- * Motion is used to show flow and to bring content in on first view; nothing loops
- * forever demanding attention, and nothing moves that the reader has to read while it
- * moves.
+ * Motion is used to show flow and to bring content in on first view; nothing moves
+ * that the reader has to read while it is moving.
  */
 @keyframes uccc-flow-dash {
   to {
@@ -191,19 +189,24 @@ body {
 }
 
 /*
- * Vestibular disorders make motion genuinely painful, and this is a page someone may
- * land on with no warning. Honouring the preference is not a nicety — and the content
- * must remain fully visible, so the entrance animation resolves to its final state
- * rather than being removed (which would leave opacity:0 content invisible forever).
+ * Landing-page motion plays for everyone, including readers who have asked their system
+ * for reduced motion. That is a deliberate product decision, not an oversight.
+ *
+ * The cost is real and worth naming where the code is: prefers-reduced-motion is set by
+ * people for whom movement triggers vestibular symptoms or migraine, and this page can
+ * be reached with no warning. Overriding it means a small number of visitors will find
+ * the page unpleasant or unusable.
+ *
+ * To restore the honouring behaviour, delete nothing and add this block back — the
+ * animations are deliberately routed through exactly two classes so it is a single
+ * change:
+ *
+ *   @media (prefers-reduced-motion: reduce) {
+ *     .uccc-flow { animation: none; }
+ *     .uccc-rise { animation: none; opacity: 1; transform: none; }
+ *   }
+ *
+ * Note the `opacity: 1` in that snippet. It is not optional: `uccc-rise` starts at
+ * opacity 0, so disabling the animation without restoring opacity leaves the content
+ * permanently invisible — a far worse outcome than the motion it was meant to avoid.
  */
-@media (prefers-reduced-motion: reduce) {
-  .uccc-flow {
-    animation: none;
-  }
-
-  .uccc-rise {
-    animation: none;
-    opacity: 1;
-    transform: none;
-  }
-}

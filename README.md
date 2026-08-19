@@ -232,11 +232,26 @@ set, which is how every classroom invite link works. Removing it would dead-end 
 registration.
 
 Motion on the landing page runs through two classes, `uccc-flow` and `uccc-rise`, so
-`prefers-reduced-motion` switches all of it off in one rule — including anything added
-later. The entrance animation resolves to its final state rather than being removed,
-because an animation that starts at `opacity: 0` and is simply disabled leaves the
-content invisible forever, which is a far worse outcome for the reader who asked for
-less motion.
+its behaviour is one change rather than many.
+
+**It plays for everyone, including readers whose system requests reduced motion.** That
+is a deliberate decision, recorded here because it otherwise reads as an oversight. The
+cost is real: `prefers-reduced-motion` is set by people for whom movement triggers
+vestibular symptoms or migraine, and a landing page is reached without warning. To
+honour the preference again, add this back to `globals.css`:
+
+```css
+@media (prefers-reduced-motion: reduce) {
+  .uccc-flow { animation: none; }
+  .uccc-rise { animation: none; opacity: 1; transform: none; }
+}
+```
+
+The `opacity: 1` there is not optional. `uccc-rise` begins at `opacity: 0`, so disabling
+the animation without restoring opacity leaves the content permanently invisible — worse
+than either motion setting, and easy to ship without noticing. There is a test asserting
+no element is left transparent under **either** preference, which stays true regardless
+of which way the decision goes.
 
 ### Signing in is open, deliberately
 
