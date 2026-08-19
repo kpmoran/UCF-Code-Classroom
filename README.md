@@ -307,11 +307,14 @@ an unverifiable membership is exactly the case the gate exists for.
 
 #### One organization can back many classrooms
 
-It used to back only one: any organization already hosting a classroom was dropped from
-the picker, on the stated grounds that two classrooms in one organization would generate
-colliding repository names. That was not true — `dedupeRepoName` appends a numeric suffix
-after checking the organization's live repository list, so collisions were already
-handled before the rule existed.
+It used to back only one. The rule lived in two places — the picker dropped any
+organization that already hosted a classroom, and `createClassroom` refused one anyway if
+the form was posted — on the stated grounds that two classrooms in one organization would
+generate colliding repository names. That was not true: `dedupeRepoName` appends a numeric
+suffix after checking the organization's live repository list, so collisions were already
+handled before the rule existed. There is no unique index on `githubOrgId` behind it
+either; the constraint that actually keeps classrooms distinct is the unique `slug`, which
+is derived from course code and term.
 
 What the rule did cost was real. It meant one organization per course, so the spring run
 of the same course needed a brand-new organization, a fresh App installation, and a fresh

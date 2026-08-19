@@ -77,17 +77,6 @@ export async function createClassroom(formData: FormData): Promise<ActionResult<
     }
   }
 
-  if (await db.classroom.findFirst({ where: { githubOrgId: installation.orgId } })) {
-    // Two classrooms in one org would generate colliding repository names for
-    // assignments that share a prefix.
-    return {
-      ok: false,
-      error:
-        `A classroom already uses the ${installation.orgLogin} organization. Use a different ` +
-        'organization for this course, or archive the existing classroom.',
-    }
-  }
-
   /*
    * Membership is a hard gate; being an Owner is only a warning.
    *

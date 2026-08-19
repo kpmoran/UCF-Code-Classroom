@@ -91,6 +91,33 @@ test('instructor creates a classroom, edits settings, and archives it', async ({
     page.getByRole('option', { name: new RegExp(`${ORG}.*already hosts 1 classroom`) }),
   ).toHaveCount(1)
 
+  /*
+   * And it goes all the way through, not just as far as the dropdown. The rule existed
+   * twice — in the picker and again in createClassroom — and removing only the first
+   * left the org selectable but the submit still refused, which is a worse state than
+   * before. So this drives the real form rather than asserting on the options.
+   */
+  const SECOND_TERM = 'Spring 2027'
+  const SECOND_SLUG = 'e2e4331-spring-2027'
+  // By value, not label: the label now carries the "already hosts" suffix.
+  const secondSelect = page.getByLabel('GitHub organization')
+  const orgValue = await secondSelect
+    .locator('option', { hasText: ORG })
+    .first()
+    .getAttribute('value')
+  expect(orgValue).toBeTruthy()
+  await secondSelect.selectOption(orgValue!)
+  await page.getByLabel('Classroom name').fill('E2E Software Engineering II')
+  await page.getByLabel('Course code').fill(COURSE_CODE)
+  await page.getByLabel('Term').fill(SECOND_TERM)
+  await page.getByRole('button', { name: 'Create classroom' }).click()
+
+  await page.waitForURL(new RegExp(`/classrooms/${SECOND_SLUG}`))
+  const second = await db.classroom.findUnique({ where: { slug: SECOND_SLUG } })
+  expect(second?.githubOrgLogin).toBe(ORG)
+  // Same org, two classrooms, distinguished by the term in the slug.
+  expect(second?.id).not.toBe(created!.id)
+
   // --- Settings -----------------------------------------------------------
   await page.goto(`/classrooms/${EXPECTED_SLUG}/settings`)
   await expect(page.getByRole('heading', { name: 'Classroom settings' })).toBeVisible()
