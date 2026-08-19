@@ -102,7 +102,12 @@ jobs:
     environment: production
 
     env:
-      IMAGE: ghcr.io/${{ github.repository }}
+      # Lowercased, because Docker image names must be. github.repository preserves the
+      # repository's actual casing — "kpmoran/UCF-Code-Connect" — and docker/metadata-action
+      # silently lowercases it when pushing, so the pushed name and this one disagreed.
+      # It went unnoticed while this was only used in log output; the moment it reached
+      # an actual image reference the deploy failed with "unable to get image".
+      IMAGE: ghcr.io/kpmoran/ucf-code-connect
       TAG: ${{ needs.preflight.outputs.tag }}
       APP_DOMAIN: ${{ vars.APP_DOMAIN }}
       SSH_TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
@@ -114,6 +119,17 @@ jobs:
           # rollback would copy the wrong compose file. Pin to the commit the
           # image was built from.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      # Cheap assertion, because the failure mode is a deploy that dies at the pull with
+      # a message about a missing image rather than about capitalisation.
+      - name: Check the image name is a legal Docker reference
+        run: |
+          set -euo pipefail
+          if [ "$IMAGE" != "$(printf '%s' "$IMAGE" | tr '[:upper:]' '[:lower:]')" ]; then
+            echo "::error title=Bad image name::'$IMAGE' contains uppercase; Docker references must be lowercase."
+            exit 1
+          fi
+          echo "image reference OK: $IMAGE"
 
       - name: Set up SSH
         env:
