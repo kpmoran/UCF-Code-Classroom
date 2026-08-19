@@ -387,6 +387,61 @@ test('the template field suggests the organization\u2019s templates as you type'
   await expect(list).toBeHidden()
 })
 
+test('the form is rendered without waiting for GitHub', async ({ context }) => {
+  /*
+   * The page used to fetch the organization's templates while rendering, which made
+   * it roughly fifty times slower to respond than the page it is reached from — and
+   * since the button is a client-side navigation, the browser showed the *old* page
+   * for the whole wait, so it read as a dead click.
+   *
+   * Asserted on the raw HTML rather than through the rendered page: this is a claim
+   * about what the server does before it replies, and a browser would happily hide
+   * the difference by filling the list in a few milliseconds later.
+   */
+  const instructor = await seedSession('kpmoran', { isSiteAdmin: true })
+  await applySession(context, instructor)
+
+  const response = await context.request.get(`/classrooms/${SLUG}/assignments/new`)
+  expect(response.status()).toBe(200)
+  const html = await response.text()
+
+  // The form itself is there...
+  expect(html).toContain('Repository name prefix')
+  // ...and says it is still looking, rather than carrying the answer.
+  expect(html).toContain('Looking up template repositories')
+  // The proof: no template name was resolved server-side.
+  expect(html).not.toContain(TEMPLATE)
+})
+
+test('typing survives the suggestions arriving', async ({ page, context }) => {
+  /*
+   * The suggestions load after mount, so they land while someone may already be
+   * typing. Loading them into state keeps this one input mounted throughout; a
+   * Suspense boundary would have swapped it for a fresh one and taken the
+   * half-typed value with it. That failure only shows up when the fetch is slower
+   * than the user, which is exactly when it is least welcome.
+   */
+  const instructor = await seedSession('kpmoran', { isSiteAdmin: true })
+  await applySession(context, instructor)
+  await page.goto(`/classrooms/${SLUG}/assignments/new`)
+
+  const field = page.getByLabel('Template')
+  // Type immediately, before the suggestion round trip can finish.
+  await field.fill('some-other-org/borrowed')
+
+  // Wait for the suggestions to actually arrive: the hint stops saying "Looking up".
+  await expect(page.getByText(/Looking up template repositories/)).toHaveCount(0)
+
+  // The typed value is untouched, and the list is live underneath it.
+  await expect(field).toHaveValue('some-other-org/borrowed')
+  await field.fill('verify')
+  await expect(
+    page.getByRole('listbox', { name: 'Suggested repositories' }).getByRole('option', {
+      name: TEMPLATE,
+    }),
+  ).toBeVisible()
+})
+
 test('a suggested template can be picked with the mouse and survives submission', async ({
   page,
   context,

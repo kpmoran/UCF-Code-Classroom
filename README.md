@@ -524,6 +524,46 @@ Missed deliveries are always recoverable — use **Re-sync grades** on an
 assignment, which walks recent workflow runs directly instead of waiting for a
 webhook.
 
+## Pages do not wait on GitHub to render
+
+The new-assignment form fetched the organization's template repositories while
+rendering. That made it about **fifty times** slower to respond than the classroom page
+it is reached from — 280ms against 5ms locally, on an organization holding two
+repositories. Because "New assignment" is a client-side navigation with no fallback to
+show, the browser kept displaying the *previous* page for the whole wait, so the click
+looked ignored rather than slow, and the natural response was to click it again.
+
+The suggestions were never load-bearing. The template field accepts any `owner/repo` as
+free text and validates it on submit, so the form is completely usable before the list
+exists. It is now fetched by the combobox after it mounts, via the
+`getTemplateSuggestions` action, which authorizes exactly as the create action does —
+the list contains private repository names and must not be readable by anyone who could
+not already create the assignment.
+
+Two details worth keeping:
+
+* The list loads **into state**, not through a Suspense boundary. Suspense would replace
+  the input with a fresh one when the data landed and take any half-typed value with it —
+  the same failure as an uncontrolled field being reset by a form action, but landing
+  mid-word. Keeping one mounted instance is what makes `typing survives the suggestions
+  arriving` pass.
+* `loading.tsx` gives the route an instant skeleton, so a click is acknowledged even when
+  the server is slow for some other reason. It is deliberately static — it cannot call
+  `SiteHeader`, which is async, because a fallback that awaits something is not a
+  fallback.
+
+`listTemplateRepos` also stopped paginating the whole organization. It asks the search
+API for `org:<org> template:true`, which is one request instead of one per hundred
+repositories — and a classroom organization gains a repository per student per
+assignment, so the old cost grew every time the app was used. Verified against a real
+installation: search does return **private** templates to an installation token, which
+is the case that matters, since course templates usually are. Search is a separate index
+with its own rate limit and can lag repository creation by a few seconds, so the
+exhaustive listing remains as a fallback and the field still takes free text.
+
+One page still does this: **classroom settings** checks organization ownership live while
+rendering, and costs about 200ms for the same reason.
+
 ## Rate limits
 
 GitHub enforces a secondary limit of **80 content-creating requests per minute

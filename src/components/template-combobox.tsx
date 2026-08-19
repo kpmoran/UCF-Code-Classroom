@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { FieldHint, Input } from '@/components/ui/input'
 import { filterTemplates, type TemplateOption } from '@/lib/github/templateMatch'
@@ -27,21 +27,54 @@ import { filterTemplates, type TemplateOption } from '@/lib/github/templateMatch
 export function TemplateCombobox({
   name,
   orgLogin,
-  templates,
+  loadTemplates,
   defaultValue = '',
   id,
 }: {
   name: string
   orgLogin: string
-  templates: TemplateOption[]
+  /**
+   * Fetches the suggestions. Called once on mount rather than awaited during the
+   * page render — see `getTemplateSuggestions` for why the render path is the
+   * wrong place for it.
+   */
+  loadTemplates: () => Promise<TemplateOption[]>
   defaultValue?: string
   id: string
 }) {
   const [value, setValue] = useState(defaultValue)
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(-1)
+  const [templates, setTemplates] = useState<TemplateOption[]>([])
+  const [loadState, setLoadState] = useState<'loading' | 'loaded' | 'failed'>('loading')
   const listId = useId()
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /*
+   * Loading into state, rather than suspending on a promise, so this input is a
+   * single component instance for its whole life. A Suspense boundary here would
+   * swap one input for another when the data arrived and take anything already
+   * typed with it — the same class of bug as an uncontrolled field being reset by
+   * a form action, and far more annoying, since it lands mid-sentence.
+   */
+  useEffect(() => {
+    let cancelled = false
+    loadTemplates()
+      .then((found) => {
+        if (cancelled) return
+        setTemplates(found)
+        setLoadState('loaded')
+      })
+      .catch(() => {
+        if (!cancelled) setLoadState('failed')
+      })
+    return () => {
+      cancelled = true
+    }
+    // Deliberately once per mount: the loader is bound to a classroom that cannot
+    // change without navigating away.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Filtering lives in lib/github/templateMatch.ts and is unit tested there; this
   // component is the wiring around it.
@@ -150,7 +183,22 @@ export function TemplateCombobox({
         </ul>
       ) : null}
 
-      {templates.length > 0 ? (
+      {/*
+        * The field works identically in all four states below; only the advice changes.
+        * "Loading" says what it is waiting for so that a slow GitHub looks like a slow
+        * lookup rather than an empty organization.
+        */}
+      {loadState === 'loading' ? (
+        <FieldHint>
+          Looking up template repositories in {orgLogin}… you can type any{' '}
+          <span className="font-mono">owner/repo</span> without waiting.
+        </FieldHint>
+      ) : loadState === 'failed' ? (
+        <FieldHint>
+          Could not reach GitHub for the list of templates in {orgLogin}. Type any{' '}
+          <span className="font-mono">owner/repo</span> — it is checked when you submit.
+        </FieldHint>
+      ) : templates.length > 0 ? (
         <FieldHint>
           {open && value.trim() !== '' && matches.length === 0
             ? `Nothing in ${orgLogin} matches “${value.trim()}”. You can still paste any owner/repo.`

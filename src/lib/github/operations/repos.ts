@@ -64,8 +64,46 @@ export async function getRepo(
   }
 }
 
-/** Repositories in the org that are marked as templates. */
+/**
+ * Repositories in the org that are marked as templates.
+ *
+ * Asks the search API to do the filtering, because the obvious implementation —
+ * page through every repository and keep the templates — costs one request per
+ * hundred repositories, and a classroom organization gains a repository per
+ * student per assignment. A course that runs two sections for a year is several
+ * sequential round trips just to populate one dropdown, and it gets slower every
+ * time the app is used, which is the wrong direction for a cost to move in.
+ *
+ * Verified against a real installation: `template:true` returns **private**
+ * templates for an installation token, which is the case that matters here since
+ * course templates usually are private.
+ *
+ * Search is a different subsystem with its own rate limit and its own index, so
+ * the exhaustive listing stays as a fallback. The index can also lag repository
+ * creation by a few seconds, so a template made moments ago may not appear yet —
+ * acceptable, because the field takes free text and never depended on this list.
+ */
 export async function listTemplateRepos(
+  installationId: bigint,
+  org: string,
+): Promise<RepoSummary[]> {
+  try {
+    const found = await githubRead(`search templates in ${org}`, installationId, (octokit) =>
+      octokit.paginate(octokit.rest.search.repos, {
+        q: `org:${org} template:true`,
+        per_page: 100,
+      }),
+    )
+    // Trust the flag on the record rather than the query, so a search-syntax
+    // change cannot quietly turn this into "every repository in the org".
+    return found.map(toSummary).filter((r) => r.isTemplate)
+  } catch {
+    return listTemplateReposByPaging(installationId, org)
+  }
+}
+
+/** The exhaustive fallback: every repository in the org, filtered locally. */
+async function listTemplateReposByPaging(
   installationId: bigint,
   org: string,
 ): Promise<RepoSummary[]> {

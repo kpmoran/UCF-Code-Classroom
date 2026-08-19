@@ -7,7 +7,7 @@ import { TemplateCombobox } from '@/components/template-combobox'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { FieldError, FieldHint, Input, Label, Select } from '@/components/ui/input'
-import { createAssignment } from '@/lib/assignments/actions'
+import { createAssignment, getTemplateSuggestions } from '@/lib/assignments/actions'
 import type { AssignmentActionResult } from '@/lib/assignments/schemas'
 import { slugify } from '@/lib/slug'
 
@@ -16,7 +16,6 @@ type Props = {
   orgLogin: string
   defaultVisibility: 'PRIVATE' | 'PUBLIC'
   defaultStudentPermission: 'PULL' | 'PUSH' | 'MAINTAIN' | 'ADMIN'
-  templates: Array<{ fullName: string; name: string }>
 }
 
 function SubmitButton({ label }: { label: string }) {
@@ -33,7 +32,6 @@ export function NewAssignmentForm({
   orgLogin,
   defaultVisibility,
   defaultStudentPermission,
-  templates,
 }: Props) {
   const [type, setType] = useState<'INDIVIDUAL' | 'GROUP'>('INDIVIDUAL')
   const [title, setTitle] = useState('')
@@ -136,7 +134,7 @@ export function NewAssignmentForm({
               id="template"
               name="template"
               orgLogin={orgLogin}
-              templates={templates}
+              loadTemplates={() => getTemplateSuggestions(classroomId)}
             />
             {fieldError('template') ? <FieldError>{fieldError('template')}</FieldError> : null}
           </div>

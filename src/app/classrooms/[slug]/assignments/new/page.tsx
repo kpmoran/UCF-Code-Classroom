@@ -4,7 +4,6 @@ import { NewAssignmentForm } from '@/components/new-assignment-form'
 import { SiteHeader } from '@/components/site-header'
 import { requireInstructor } from '@/lib/auth/dal'
 import { db } from '@/lib/db'
-import { listTemplateRepos } from '@/lib/github/operations/repos'
 
 export default async function NewAssignmentPage(
   props: PageProps<'/classrooms/[slug]/assignments/new'>,
@@ -12,15 +11,16 @@ export default async function NewAssignmentPage(
   const { slug } = await props.params
   const { classroom } = await requireInstructor(slug)
 
-  const [defaults, templates] = await Promise.all([
-    db.classroom.findUniqueOrThrow({
-      where: { id: classroom.id },
-      select: { defaultRepoVisibility: true, defaultStudentPermission: true },
-    }),
-    // Best effort: the form falls back to a free-text field, so a GitHub outage
-    // must not block creating an assignment.
-    listTemplateRepos(classroom.installationId, classroom.githubOrgLogin).catch(() => []),
-  ])
+  /*
+   * Only the database is touched here. The template list used to be fetched
+   * alongside it, which made this page an order of magnitude slower than the one
+   * it is reached from, for a list the form does not need in order to work — the
+   * combobox now asks for it after mounting.
+   */
+  const defaults = await db.classroom.findUniqueOrThrow({
+    where: { id: classroom.id },
+    select: { defaultRepoVisibility: true, defaultStudentPermission: true },
+  })
 
   return (
     <>
@@ -45,7 +45,6 @@ export default async function NewAssignmentPage(
           orgLogin={classroom.githubOrgLogin}
           defaultVisibility={defaults.defaultRepoVisibility}
           defaultStudentPermission={defaults.defaultStudentPermission}
-          templates={templates.map((t) => ({ fullName: t.fullName, name: t.name }))}
         />
       </main>
     </>

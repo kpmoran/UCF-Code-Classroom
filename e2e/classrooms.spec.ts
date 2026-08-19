@@ -41,10 +41,14 @@ test('instructor creates a classroom, edits settings, and archives it', async ({
   await page.goto('/classrooms/new')
   await expect(page.getByRole('heading', { name: 'New classroom' })).toBeVisible()
 
-  // The real installation must be offered.
+  // The real installation must be offered. Selected by value, not by label: an
+  // organization is allowed to host other classrooms, and when it does the label
+  // carries an "already hosts N" suffix, so matching the bare name would break the
+  // moment this suite runs against a database that has anything else in it.
   const orgSelect = page.getByLabel('GitHub organization')
-  await expect(orgSelect.locator('option', { hasText: ORG })).toHaveCount(1)
-  await orgSelect.selectOption({ label: ORG })
+  const orgOption = orgSelect.locator('option', { hasText: ORG })
+  await expect(orgOption).toHaveCount(1)
+  await orgSelect.selectOption((await orgOption.getAttribute('value'))!)
 
   await page.getByLabel('Classroom name').fill(CLASSROOM_NAME)
   await page.getByLabel('Course code').fill(COURSE_CODE)
@@ -88,7 +92,7 @@ test('instructor creates a classroom, edits settings, and archives it', async ({
   await page.goto('/classrooms/new')
   await expect(page.getByText('No GitHub organization available')).toHaveCount(0)
   await expect(
-    page.getByRole('option', { name: new RegExp(`${ORG}.*already hosts 1 classroom`) }),
+    page.getByRole('option', { name: new RegExp(`${ORG}.*already hosts \\d+ classroom`) }),
   ).toHaveCount(1)
 
   /*

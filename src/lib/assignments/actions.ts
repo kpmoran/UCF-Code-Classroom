@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation'
 import { requireClassroomRole, requireInstructor, requireUser } from '@/lib/auth/dal'
 import { db } from '@/lib/db'
 import { GitHubDomainError } from '@/lib/github/errors'
-import { validateTemplate } from '@/lib/github/operations/repos'
+import { listTemplateRepos, validateTemplate } from '@/lib/github/operations/repos'
 import { estimateProvisioningMs, formatDuration } from '@/lib/github/rateLimiter'
 import { enqueue, enqueueMany, QUEUES } from '@/jobs/queue'
 import { buildClassroomSlug, dedupeSlug } from '@/lib/slug'
@@ -19,6 +19,37 @@ import {
   parseTemplateReference,
   type AssignmentActionResult,
 } from './schemas'
+
+/**
+ * The organization's template repositories, for the picker on the new-assignment form.
+ *
+ * A separate round trip on purpose. Fetching this during the page render made
+ * navigating to the form roughly ten times slower than the page it is reached from
+ * (~280ms against ~20ms locally, and the GitHub call was all of it) — and because
+ * the button is a client-side navigation with nothing to show meanwhile, the browser
+ * sat on the previous page for the whole wait, which reads as a dead click rather
+ * than as loading.
+ *
+ * The suggestions were never load-bearing: the field accepts any `owner/repo` as free
+ * text, so the form is completely usable before this resolves. Blocking first paint on
+ * a convenience was the mistake.
+ */
+export async function getTemplateSuggestions(
+  classroomId: string,
+): Promise<Array<{ fullName: string; name: string }>> {
+  // Same authorization as creating the assignment: this reveals private repository
+  // names, so it cannot be looser than the form it serves.
+  const { classroom } = await requireInstructor(classroomId)
+
+  try {
+    const templates = await listTemplateRepos(classroom.installationId, classroom.githubOrgLogin)
+    return templates.map((t) => ({ fullName: t.fullName, name: t.name }))
+  } catch {
+    // An empty list degrades to a plain text field, which is the documented
+    // fallback. A GitHub outage must not stop an assignment being created.
+    return []
+  }
+}
 
 export async function createAssignment(
   formData: FormData,
