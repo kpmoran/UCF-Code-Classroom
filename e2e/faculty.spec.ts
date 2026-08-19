@@ -53,8 +53,36 @@ test('the dashboard offers an outsider no way to create, and says what to do', a
   await expect(page.getByRole('link', { name: 'New classroom' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Create a classroom' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Faculty access' })).toHaveCount(0)
-  // Dead ends are worse than restrictions: tell them how to get access.
-  await expect(page.getByText(/ask a site administrator/i)).toBeVisible()
+
+  // Written for a student, because signing in before the instructor shares the link is
+  // a normal thing to do and lands exactly here. It must not imply they have missed a
+  // step, and it must not send them chasing a faculty invitation they do not want.
+  await expect(page.getByText(/invite link your instructor sent you/i)).toBeVisible()
+  await expect(page.getByText(/nothing to set up first/i)).toBeVisible()
+  // The faculty route is mentioned, but demoted rather than made the headline.
+  await expect(page.getByText(/Teaching staff join by invitation/i)).toBeVisible()
+})
+
+test('a student who signs in before enrolment can still claim their place later', async ({
+  page,
+  context,
+}) => {
+  // The order people actually do this in: sign in first, get added to a roster
+  // afterwards. Nothing about the early sign-in may block the later claim.
+  const early = await seedSession('e2e-early-student')
+  await setFaculty(early.id, false)
+  await applySession(context, early)
+
+  await page.goto('/')
+  await expect(page.getByText(/No classrooms yet/)).toBeVisible()
+
+  // Nothing was created on their behalf by signing in.
+  expect(
+    await db.classroomMember.count({ where: { userId: early.id } }),
+  ).toBe(0)
+  expect(
+    await db.rosterEntry.count({ where: { claimedByUserId: early.id } }),
+  ).toBe(0)
 })
 
 test('the create action refuses an outsider even when the page is bypassed', async ({

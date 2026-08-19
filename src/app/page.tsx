@@ -64,10 +64,26 @@ export default async function HomePage() {
                 }
               />
             ) : (
-              <EmptyState
-                title="No classrooms yet"
-                description="Open the invite link your instructor sent you to join one. If you teach here and need to create classrooms, ask a site administrator for a faculty invitation."
-              />
+              <>
+                {/*
+                 * Written for a student, because that is who is overwhelmingly here:
+                 * signing in before the instructor has shared the link, or before the
+                 * roster is imported, is a normal thing to do and leaves exactly this
+                 * screen. Telling them about faculty invitations — which the previous
+                 * wording did — answers a question they did not ask and implies they
+                 * are missing a step they are not.
+                 *
+                 * The faculty note stays, but demoted, because someone who teaches here
+                 * knows they teach here and will recognise it.
+                 */}
+                <EmptyState
+                  title="No classrooms yet"
+                  description="Open the invite link your instructor sent you and pick your name from the roster. There is nothing to set up first — if you have not been sent a link yet, there is nothing to do but wait for it."
+                />
+                <p className="px-6 pb-6 -mt-2 text-center text-xs text-muted">
+                  Teaching staff join by invitation from a site administrator.
+                </p>
+              </>
             )}
           </Card>
         ) : (
