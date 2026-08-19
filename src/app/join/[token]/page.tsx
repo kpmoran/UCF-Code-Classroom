@@ -31,7 +31,7 @@ export default async function JoinPage(props: PageProps<'/join/[token]'>) {
             </CardHeader>
             <CardContent>
               <ButtonLink href="/" variant="outline">
-                Go to UCF-Code-Connect
+                Go to UCF Code Classroom
               </ButtonLink>
             </CardContent>
           </Card>

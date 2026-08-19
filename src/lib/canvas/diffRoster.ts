@@ -176,7 +176,7 @@ export function diffRoster(
             ? `${entry.displayName} has registered as ${who} and has ${entry.repoCount} ` +
               `assignment ${entry.repoCount === 1 ? 'repository' : 'repositories'}. ` +
               'Removing them here does not delete anything on GitHub, but they will lose ' +
-              'access to this classroom in UCF-Code-Connect.'
+              'access to this classroom in UCF Code Classroom.'
             : `${entry.displayName} has registered as ${who}. Removing them here will ` +
               'unlink that account from this classroom.',
       })

@@ -173,7 +173,7 @@ export function toDomainError(error: unknown, context: string): GitHubDomainErro
         ...base,
         kind: 'InsufficientPermissions',
         userMessage:
-          'GitHub refused to write the autograding workflow because the UCF-Code-Connect app ' +
+          'GitHub refused to write the autograding workflow because the UCF Code Classroom app ' +
           'lacks the “Workflows” permission. Open the app’s settings, set Repository ' +
           'permissions → Workflows to Read & write, then accept the new permission on the ' +
           'organization’s installation page.',
@@ -190,10 +190,10 @@ export function toDomainError(error: unknown, context: string): GitHubDomainErro
       kind: 'InsufficientPermissions',
       userMessage: ambiguousUser
         ? 'GitHub refused this action. Two things cause this: a GitHub username that does ' +
-          'not exist (check for a typo), or the UCF-Code-Connect app missing write access ' +
+          'not exist (check for a typo), or the UCF Code Classroom app missing write access ' +
           'to Administration and Contents on the organization.'
         : 'GitHub refused this action for lack of permission. Check that the ' +
-          'UCF-Code-Connect app is installed on the organization with write access to ' +
+          'UCF Code Classroom app is installed on the organization with write access to ' +
           'Administration and Contents.',
     })
   }

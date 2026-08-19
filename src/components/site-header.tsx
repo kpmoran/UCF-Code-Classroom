@@ -30,7 +30,7 @@ export async function SiteHeader() {
             priority
             className="size-6 shrink-0 dark:invert"
           />
-          <span>UCF-Code-Connect</span>
+          <span>UCF Code Classroom</span>
         </Link>
 
         <div className="flex items-center gap-3 text-sm min-w-0">

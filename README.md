@@ -1,4 +1,4 @@
-# UCF-Code-Connect
+# UCF Code Classroom
 
 [![CI](https://github.com/kpmoran/UCF-Code-Classroom/actions/workflows/ci.yml/badge.svg)](https://github.com/kpmoran/UCF-Code-Classroom/actions/workflows/ci.yml)
 
@@ -749,12 +749,23 @@ is supposed to be behind.
 ### 1. Buy the domain
 
 Cloudflare Registrar sells at cost with no upsells, and its DNS has an API. Pick
-something short that students can type from a slide — `ucfcodeconnect.com`,
+something short that students can type from a slide — `code-classroom.com`,
 `knightscode.dev`. Then create one record:
 
 | Type | Name | Content | Proxy |
 |---|---|---|---|
 | `A` | `@` (or a subdomain) | your server's public IPv4 | **DNS only** at first |
+
+If you are **renaming** an existing deployment rather than starting one, also set
+`LEGACY_DOMAIN` in `/opt/uccc/.env` to the old hostname. Caddy then serves both names
+and permanently redirects the old one, path intact, so invite links already pasted into
+a syllabus keep working. That matters more than it sounds: the app builds new links from
+`APP_URL`, but it cannot reach back and rewrite the ones students already have. Letting
+the old name lapse instead is not a clean retirement either — the `Strict-Transport-Security`
+header is sticky for a year, so a browser that has already visited will refuse plain HTTP
+on that name and show a connection error rather than following a redirect. On a fresh
+install `bootstrap.sh` sets `LEGACY_DOMAIN` equal to `APP_DOMAIN`, which the Caddyfile
+treats as "none".
 
 Leave the proxy **off** for the first deploy. Caddy proves it controls the domain
 over plain HTTP on port 80, and Cloudflare's proxy intercepts that. Once a
@@ -767,7 +778,7 @@ over unencrypted HTTP while showing students a padlock.
 Needs a public IPv4, inbound 22/80/443, and root. Then, once:
 
 ```bash
-sudo bash deploy/bootstrap.sh code-connect.example.edu
+sudo bash deploy/bootstrap.sh code-classroom.example.edu
 ```
 
 That installs Docker, creates `/opt/uccc`, generates `AUTH_SECRET`,

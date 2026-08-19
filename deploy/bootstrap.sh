@@ -214,6 +214,11 @@ else
   cat > "$DIR/.env" <<ENVEOF
 APP_DOMAIN="$APP_DOMAIN"
 APP_URL="https://$APP_DOMAIN"
+# No previous hostname to keep alive on a fresh install. Setting this to the same
+# value as APP_DOMAIN is how the Caddyfile is told "none" -- its redirect matcher
+# excludes the canonical host, so this configuration is inert rather than a loop.
+# After a rename, put the old hostname here so existing invite links keep working.
+LEGACY_DOMAIN="$APP_DOMAIN"
 
 POSTGRES_USER="uccc"
 POSTGRES_PASSWORD="$PGPASS"

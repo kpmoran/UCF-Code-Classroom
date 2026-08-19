@@ -67,7 +67,7 @@ export function LandingPage() {
               priority
               className="size-6 shrink-0 dark:invert"
             />
-            <span>UCF-Code-Connect</span>
+            <span>UCF Code Classroom</span>
           </span>
           {/* Available before signing in, because a reader who cannot comfortably
               read this page needs to fix that here, not after authenticating. */}
@@ -84,7 +84,7 @@ export function LandingPage() {
             Coursework on real GitHub, managed from one place
           </h1>
           <p className="mt-5 mx-auto max-w-2xl text-lg text-muted text-pretty">
-            UCF-Code-Connect turns a Canvas roster into per-student GitHub repositories,
+            UCF Code Classroom turns a Canvas roster into per-student GitHub repositories,
             grades them with Actions, and sends the marks back — all inside an organization
             you control.
           </p>
@@ -178,7 +178,7 @@ export function LandingPage() {
 
           <p className="mt-8 text-center text-sm text-muted">
             Interested in using this for your course?{' '}
-            <a href="mailto:kpmoran@ucf.edu?subject=UCF-Code-Connect%20access" className="underline">
+            <a href="mailto:kpmoran@ucf.edu?subject=UCF%20Code%20Classroom%20access" className="underline">
               Ask for an invitation
             </a>
             .
@@ -188,7 +188,7 @@ export function LandingPage() {
 
       <footer className="border-t border-border">
         <div className="mx-auto max-w-6xl px-6 py-6 flex flex-wrap items-center justify-between gap-4 text-sm text-muted">
-          <span>UCF-Code-Connect</span>
+          <span>UCF Code Classroom</span>
           <div className="flex items-center gap-4">
             <a
               href="https://github.com/kpmoran/UCF-Code-Classroom"

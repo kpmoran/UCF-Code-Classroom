@@ -73,7 +73,7 @@ describe('team management with the App installation token', () => {
     const { data } = await octokit.rest.teams.create({
       org: ORG,
       name: TEAM_NAME,
-      description: 'UCF-Code-Connect verification team',
+      description: 'UCF Code Classroom verification team',
       privacy: 'closed',
     })
 

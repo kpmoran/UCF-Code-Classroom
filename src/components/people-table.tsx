@@ -204,7 +204,7 @@ export function PeopleTable({
         description={
           <>
             <p>
-              They lose access to this classroom in UCF-Code-Connect, and their roster entry is
+              They lose access to this classroom in UCF Code Classroom, and their roster entry is
               freed so it can be claimed again. Their roster record is kept.
             </p>
             {removing && removing.repoCount > 0 ? (

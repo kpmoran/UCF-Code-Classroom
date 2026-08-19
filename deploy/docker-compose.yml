@@ -104,6 +104,9 @@ services:
     environment:
       # Caddy requests a certificate for exactly this name, so it has to match DNS.
       APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env}
+      # An old hostname to keep redirecting after a rename. Required by the
+      # Caddyfile's host matcher; see the comment there if you have none.
+      LEGACY_DOMAIN: ${LEGACY_DOMAIN:?set LEGACY_DOMAIN in .env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # Certificates and account keys. Losing this volume means re-issuing, which

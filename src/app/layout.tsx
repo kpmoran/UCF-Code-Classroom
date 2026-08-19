@@ -7,7 +7,7 @@ const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'UCF-Code-Connect',
+  title: 'UCF Code Classroom',
   description: 'Course assignment management backed by GitHub.',
 }
 

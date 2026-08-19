@@ -9,7 +9,7 @@ import { env } from '@/lib/env'
 
 const ERROR_MESSAGES: Record<string, string> = {
   OAuthAccountNotLinked:
-    'That GitHub account is already linked to a different UCF-Code-Connect user.',
+    'That GitHub account is already linked to a different UCF Code Classroom user.',
   AccessDenied: 'You cancelled the GitHub authorization, or access was denied.',
   Configuration:
     'GitHub sign-in is not configured on this server. See "GitHub App setup" in the README.',

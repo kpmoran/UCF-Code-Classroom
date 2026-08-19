@@ -73,7 +73,7 @@ export function ArchiveForm({
           />
           <FieldHint>
             No GitHub repositories are deleted or modified. This only affects
-            UCF-Code-Connect.
+            UCF Code Classroom.
           </FieldHint>
         </div>
       ) : null}

@@ -5,8 +5,36 @@
 # reachable, because the ACME HTTP challenge is answered there. If the name is
 # proxied through Cloudflare (orange cloud) leave it DNS-only until the first
 # certificate is issued — see "Deploying" in README.md.
+#
+# LEGACY_DOMAIN is an old hostname to keep alive after a rename, redirected to the
+# canonical one. It exists because invite links are handed to students as URLs: the
+# app builds new ones from APP_URL, but the ones already pasted into a syllabus or a
+# Canvas announcement still name the old host, and those have to keep working.
+#
+# Letting the old name simply lapse is not the same as retiring it gracefully. The
+# HSTS header below is sticky for a year, so a browser that has already seen the old
+# name will refuse to talk to it over plain HTTP — a name that stops serving valid
+# HTTPS gives those visitors a connection error rather than a redirect.
+#
+# Both names are served by one site block so they share the TLS and header config.
+# With no old domain to keep, set LEGACY_DOMAIN to the same value as APP_DOMAIN --
+# the matcher below is written so that makes the redirect inert. Leaving it empty is
+# not an option: an empty host matcher fails config load outright.
 
-{$APP_DOMAIN} {
+{$APP_DOMAIN} {$LEGACY_DOMAIN} {
+	# Send the old hostname to the canonical one, preserving the path so an existing
+	# /join/<token> link lands exactly where it used to. 301, because this is
+	# permanent and we want it cached.
+	# The second condition makes the redirect inert when LEGACY_DOMAIN is set to the
+	# same value as APP_DOMAIN, which is how a deployment with no old hostname says
+	# "none" -- bootstrap.sh writes it that way. Without it, that configuration would
+	# match the canonical host and redirect it to itself forever.
+	@legacy {
+		host {$LEGACY_DOMAIN}
+		not host {$APP_DOMAIN}
+	}
+	redir @legacy https://{$APP_DOMAIN}{uri} permanent
+
 	encode zstd gzip
 
 	header {

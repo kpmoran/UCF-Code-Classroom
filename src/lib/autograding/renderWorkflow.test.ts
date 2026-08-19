@@ -125,7 +125,7 @@ describe('renderWorkflow — structure', () => {
   })
 
   it('names the managed files in a header comment', () => {
-    expect(workflowYaml).toContain('Managed by UCF-Code-Connect')
+    expect(workflowYaml).toContain('Managed by UCF Code Classroom')
     expect(workflowYaml).toContain(MANIFEST_PATH)
   })
 })

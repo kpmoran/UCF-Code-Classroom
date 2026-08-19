@@ -49,7 +49,7 @@ beforeAll(async () => {
       org: ORG,
       name: TEMPLATE_REPO,
       private: true,
-      description: 'Template used by UCF-Code-Connect integration tests.',
+      description: 'Template used by UCF Code Classroom integration tests.',
       auto_init: true,
     })
     await octokit.rest.repos.createOrUpdateFileContents({

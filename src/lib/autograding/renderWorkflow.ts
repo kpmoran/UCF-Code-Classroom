@@ -134,7 +134,7 @@ export function renderWorkflow(tests: readonly GradingTestSpec[]): RenderedWorkf
   })
 
   const workflow = {
-    name: 'UCF-Code-Connect Autograding',
+    name: 'UCF Code Classroom Autograding',
     on: {
       push: { branches: ['**'] },
       // Lets an instructor re-run grading without asking the student to push.
@@ -187,7 +187,7 @@ export function renderWorkflow(tests: readonly GradingTestSpec[]): RenderedWorkf
   }
 
   const header =
-    '# Managed by UCF-Code-Connect. Edits here are overwritten when the\n' +
+    '# Managed by UCF Code Classroom. Edits here are overwritten when the\n' +
     '# assignment\'s autograding tests change.\n' +
     `# Test definitions live in ${MANIFEST_PATH}.\n`
 

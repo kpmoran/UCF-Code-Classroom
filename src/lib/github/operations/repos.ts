@@ -140,7 +140,7 @@ export async function validateTemplate(
       ok: false,
       reason:
         `Could not find ${owner}/${repo}. Check the spelling, and confirm the ` +
-        'UCF-Code-Connect app has access to that repository.',
+        'UCF Code Classroom app has access to that repository.',
     }
   }
 
