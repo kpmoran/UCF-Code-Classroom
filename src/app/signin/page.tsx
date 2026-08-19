@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 
+import { ThemeToggle } from '@/components/theme-toggle'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { getCurrentUser } from '@/lib/auth/dal'
@@ -25,7 +26,16 @@ export default async function SignInPage(props: PageProps<'/signin'>) {
   const configured = Boolean(env.AUTH_GITHUB_ID && env.AUTH_GITHUB_SECRET)
 
   return (
-    <main className="flex-1 flex items-center justify-center p-6">
+    <main className="flex-1 flex flex-col items-center justify-center p-6 gap-4">
+      {/*
+       * The theme control belongs here as well as in the site header, which this page
+       * does not render. Someone who cannot comfortably read the page needs to fix
+       * that *before* signing in, not after — putting an accessibility control behind
+       * authentication defeats it.
+       */}
+      <div className="w-full max-w-md flex justify-end">
+        <ThemeToggle />
+      </div>
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>Sign in to UCF-Code-Connect</CardTitle>

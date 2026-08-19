@@ -45,6 +45,28 @@ const schema = z.object({
     .string()
     .default('true')
     .transform((v) => v !== 'false'),
+
+  /**
+   * GitHub logins that are always site admins, comma-separated.
+   *
+   * The bootstrap problem this solves: on a fresh deployment the database has no
+   * users, so there is nobody who can grant anyone else anything. Deriving admin
+   * status from server configuration rather than from a row means the first person
+   * in is already an admin, with no "first user to sign in wins" race — which on a
+   * public URL is a race an attacker can enter.
+   *
+   * Read on every request rather than written to the user row, so revoking someone
+   * is a config change and a restart, not a database edit.
+   */
+  SITE_ADMIN_LOGINS: z
+    .string()
+    .default('')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => s !== ''),
+    ),
 })
 
 function load() {

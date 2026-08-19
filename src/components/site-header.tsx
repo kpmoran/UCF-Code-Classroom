@@ -2,6 +2,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 
 import { SignOutButton } from '@/components/sign-out-button'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { getCurrentUser } from '@/lib/auth/dal'
 
 export async function SiteHeader() {
@@ -32,14 +33,17 @@ export async function SiteHeader() {
           <span>UCF-Code-Connect</span>
         </Link>
 
-        {user ? (
-          <div className="flex items-center gap-3 text-sm min-w-0">
-            <span className="text-muted truncate hidden sm:inline">
-              {user.githubLogin ? `@${user.githubLogin}` : (user.name ?? user.email)}
-            </span>
-            <SignOutButton />
-          </div>
-        ) : null}
+        <div className="flex items-center gap-3 text-sm min-w-0">
+          <ThemeToggle />
+          {user ? (
+            <>
+              <span className="text-muted truncate hidden sm:inline">
+                {user.githubLogin ? `@${user.githubLogin}` : (user.name ?? user.email)}
+              </span>
+              <SignOutButton />
+            </>
+          ) : null}
+        </div>
       </div>
     </header>
   )

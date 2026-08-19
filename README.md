@@ -18,11 +18,12 @@ repos, with real Actions and real pull requests.
 - Individual **and** group (team) assignments
 - Canvas roster import from a Gradebook CSV export, plus adding students one at a time
 - Instructor console for classroom settings and membership management
+- Faculty invitations, so only invited colleagues can create classrooms
 - Deadlines with per-student and per-team extensions
 - Autograding via GitHub Actions
 - Feedback pull requests
 - Grade export back to Canvas
-- Light and dark themes, following the reader's system setting
+- Light and dark themes, following the system setting or an explicit choice
 
 ## Stack
 
@@ -187,6 +188,84 @@ encrypted under `ENCRYPTION_KEY`.
 
 > Students are never asked for elevated access. Student sign-in requests only
 > `read:user` and `user:email`.
+
+## Who can create classrooms
+
+Signing in with GitHub proves only that someone has a GitHub account, and every
+student has one. So it cannot be what decides who may create a classroom — before
+this gate existed, any student who found `/classrooms/new` could create one and become
+its instructor.
+
+Three levels:
+
+| | Can join a classroom | Can create classrooms | Can invite faculty |
+|---|---|---|---|
+| Anyone signed in | ✅ via a roster invite link | — | — |
+| Faculty | ✅ | ✅ | — |
+| Site admin | ✅ | ✅ | ✅ |
+
+**Site admins come from configuration, not the database.** `SITE_ADMIN_LOGINS` is a
+comma-separated list of GitHub logins, read on every request:
+
+```
+SITE_ADMIN_LOGINS="kpmoran"
+```
+
+That solves the bootstrap. A fresh deployment has no users, so nobody could otherwise
+grant the first one anything — and the alternative, "the first account to sign in
+becomes admin", is a race anyone who finds the URL before you can enter. It also means
+revoking an admin is a config change and a restart rather than a database edit, with
+no stale row to miss.
+
+**Faculty come from invitations.** A site admin creates one at `/admin/faculty` and
+sends the link. It is bounded like the student invite links, because it is a privilege
+escalation if it leaks: single-use by default, always expiring, revocable, and every
+redemption recorded against the account that used it.
+
+Two decisions worth knowing:
+
+- **Redeeming needs a button press, not just opening the link.** Mail clients, Slack
+  unfurls and security proxies all follow URLs, and any of them would otherwise consume
+  a single-use invitation before the recipient clicked anything. The landing page is
+  read-only; accepting is a POST.
+- **Every rejection shows the same message.** Distinguishing "no such invitation" from
+  "already used up" would confirm to someone guessing tokens that a particular one is
+  real.
+
+Withdrawing someone's faculty access does not touch the classrooms they already run —
+they remain an instructor there. Removing someone mid-semester from courses full of
+student work is a much larger decision than "should they be able to start new ones".
+
+The migration that adds this grants faculty to everyone already recorded as an
+INSTRUCTOR of a classroom, so introducing the gate cannot lock out the people already
+teaching here.
+
+## Light and dark
+
+The theme follows the reader's system setting by default, and the control in the header
+offers **Auto / Light / Dark**.
+
+Three options rather than a switch, because "follow my system" is a real preference and
+not the same as either fixed choice — a binary toggle discards it the first time you
+touch the control, with no way back. It is a radio group, so it announces as one control
+with three options and arrow keys move between them; a single cycling button would
+announce only its current state and give no hint what pressing it does.
+
+Three things that are easy to get wrong here and are each covered by a test:
+
+- **Forcing light on a machine set to dark.** The dark rules are guarded with
+  `:root:not([data-theme='light'])`, or the media query keeps winning and the control
+  appears broken in exactly one direction — which you will not notice if you test on a
+  light machine.
+- **`color-scheme` has to track the explicit choice too**, not just the system one, or
+  a forced-light page gets dark checkboxes, date pickers and scrollbars.
+- **No flash of the wrong theme.** An inline, synchronous script in `<head>` applies
+  the saved choice before the first paint. Anything deferred — a client effect, a module
+  import — runs after the browser has painted, and the flash is worst for exactly the
+  readers a theme control exists to serve.
+
+The control is on the sign-in page as well as in the header: someone who cannot
+comfortably read the page needs to fix that before signing in, not after.
 
 ## Exporting grades to Canvas
 

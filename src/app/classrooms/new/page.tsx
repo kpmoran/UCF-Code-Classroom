@@ -3,13 +3,13 @@ import Link from 'next/link'
 import { NewClassroomForm } from '@/components/new-classroom-form'
 import { SiteHeader } from '@/components/site-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { requireUser } from '@/lib/auth/dal'
+import { requireFaculty } from '@/lib/auth/dal'
 import { db } from '@/lib/db'
 import { GitHubDomainError } from '@/lib/github/errors'
 import { listAppInstallations, type InstallationSummary } from '@/lib/github/operations/orgs'
 
 export default async function NewClassroomPage() {
-  await requireUser()
+  await requireFaculty()
 
   let installations: InstallationSummary[] = []
   let loadError: string | null = null

@@ -48,6 +48,7 @@ async function main() {
       name: 'Dr. Instructor (seed)',
       email: 'instructor@seed.invalid',
       isSiteAdmin: true,
+      isFaculty: true,
     },
   })
 

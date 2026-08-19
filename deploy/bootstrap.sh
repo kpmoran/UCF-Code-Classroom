@@ -230,6 +230,10 @@ AUTH_GITHUB_SECRET=""
 GITHUB_APP_ID=""
 GITHUB_APP_PRIVATE_KEY=""
 
+# Comma-separated GitHub logins that are always site admins. Set this before
+# signing in, or nobody can create a classroom or invite anyone.
+SITE_ADMIN_LOGINS=""
+
 GITHUB_CONTENT_CALLS_PER_MINUTE="6"
 GITHUB_CONTENT_CALLS_PER_HOUR="400"
 RUN_WORKER="true"

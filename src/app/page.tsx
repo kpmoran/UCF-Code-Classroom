@@ -45,18 +45,43 @@ export default async function HomePage() {
                 : `${memberships.length} classroom${memberships.length === 1 ? '' : 's'}.`}
             </p>
           </div>
-          <ButtonLink href="/classrooms/new" variant="accent">New classroom</ButtonLink>
+          <div className="flex items-center gap-2">
+            {user.isSiteAdmin ? (
+              <ButtonLink href="/admin/faculty" variant="outline">
+                Faculty access
+              </ButtonLink>
+            ) : null}
+            {user.isFaculty ? (
+              <ButtonLink href="/classrooms/new" variant="accent">New classroom</ButtonLink>
+            ) : null}
+          </div>
         </div>
 
         {memberships.length === 0 ? (
           <Card>
-            <EmptyState
-              title="No classrooms yet"
-              description="Create a classroom to get started, or open the invite link your instructor sent you."
-              action={
-                <ButtonLink href="/classrooms/new" variant="accent">Create a classroom</ButtonLink>
-              }
-            />
+            {/*
+             * Two different situations that look identical from here, so they get
+             * different text. A student with no classroom needs their instructor's
+             * link; an instructor with no classroom needs to make one. Offering
+             * "create a classroom" to someone who is not allowed to would send them
+             * to a 403.
+             */}
+            {user.isFaculty ? (
+              <EmptyState
+                title="No classrooms yet"
+                description="Create a classroom to get started."
+                action={
+                  <ButtonLink href="/classrooms/new" variant="accent">
+                    Create a classroom
+                  </ButtonLink>
+                }
+              />
+            ) : (
+              <EmptyState
+                title="No classrooms yet"
+                description="Open the invite link your instructor sent you to join one. If you teach here and need to create classrooms, ask a site administrator for a faculty invitation."
+              />
+            )}
           </Card>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">

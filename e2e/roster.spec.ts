@@ -259,7 +259,7 @@ test('a student joins via invite link and the name becomes unavailable', async (
   const confirm = page.getByRole('button', { name: /This is me/ })
   await expect(confirm).toBeDisabled()
 
-  await page.getByRole('radio').first().check()
+  await page.locator('form').getByRole('radio').first().check()
   await expect(confirm).toBeEnabled()
   await confirm.click()
 
@@ -402,7 +402,7 @@ test('a hand-added student can claim their own entry through the invite link', a
   await studentPage.goto(`/join/${inviteToken}`)
   await expect(studentPage.getByText('Claimant, Cara')).toBeVisible()
   // Only one entry exists on this roster, so the first radio is hers.
-  await studentPage.getByRole('radio').first().check()
+  await studentPage.locator('form').getByRole('radio').first().check()
   const confirm = studentPage.getByRole('button', { name: /This is me/ })
   await expect(confirm).toBeEnabled()
   await confirm.click()

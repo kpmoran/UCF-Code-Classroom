@@ -4,7 +4,7 @@ import { ClassroomRole } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
-import { requireInstructor, requireUser } from '@/lib/auth/dal'
+import { requireFaculty, requireInstructor } from '@/lib/auth/dal'
 import { generateInviteToken } from '@/lib/crypto'
 import { db } from '@/lib/db'
 import { GitHubDomainError } from '@/lib/github/errors'
@@ -32,7 +32,9 @@ async function takenSlugs(): Promise<Set<string>> {
 }
 
 export async function createClassroom(formData: FormData): Promise<ActionResult<never>> {
-  const user = await requireUser()
+  // The real boundary. The page check above it is only UX — a form can be posted
+  // directly, so a page-only guard is no guard at all.
+  const user = await requireFaculty()
 
   const parsed = createClassroomSchema.safeParse({
     name: formData.get('name'),

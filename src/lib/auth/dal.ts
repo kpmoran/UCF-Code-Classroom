@@ -7,6 +7,7 @@ import { cache } from 'react'
 import { auth } from './config'
 import { roleSatisfies } from './roles'
 import { db } from '@/lib/db'
+import { env } from '@/lib/env'
 
 /**
  * Data access layer.
@@ -27,7 +28,10 @@ export type SessionUser = {
   email: string | null
   image: string | null
   githubLogin: string | null
+  /** Effective, not the raw column — see getCurrentUser. */
   isSiteAdmin: boolean
+  /** May create classrooms. Effective: implied by isSiteAdmin. */
+  isFaculty: boolean
 }
 
 /** The signed-in user, or null. Use when unauthenticated access is valid. */
@@ -46,10 +50,25 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
       image: true,
       githubLogin: true,
       isSiteAdmin: true,
+      isFaculty: true,
     },
   })
+  if (!user) return null
 
-  return user
+  /**
+   * Admin status is the column OR the SITE_ADMIN_LOGINS configuration, and faculty
+   * status is implied by admin.
+   *
+   * Configuration is consulted on every request rather than copied into the row, so
+   * granting or revoking an admin is a deploy rather than a database edit, and there
+   * is no stale row to notice. It also solves the bootstrap: a fresh deployment has
+   * no users, so nobody could otherwise grant the first one anything.
+   */
+  const login = user.githubLogin?.toLowerCase()
+  const isSiteAdmin =
+    user.isSiteAdmin || (login !== undefined && env.SITE_ADMIN_LOGINS.includes(login))
+
+  return { ...user, isSiteAdmin, isFaculty: user.isFaculty || isSiteAdmin }
 })
 
 /** The signed-in user, redirecting to sign-in if there is none. */
@@ -138,6 +157,26 @@ export const requireClassroomRole = cache(
 )
 
 /** Convenience wrappers, so call sites read as the permission they need. */
+/**
+ * The signed-in user, provided they may create classrooms.
+ *
+ * `forbidden()` rather than a redirect: they are signed in and the answer will not
+ * change by signing in again, so sending them back to /signin would be a loop with
+ * extra steps.
+ */
+export const requireFaculty = cache(async (): Promise<SessionUser> => {
+  const user = await requireUser()
+  if (!user.isFaculty) forbidden()
+  return user
+})
+
+/** The signed-in user, provided they administer the whole site. */
+export const requireSiteAdmin = cache(async (): Promise<SessionUser> => {
+  const user = await requireUser()
+  if (!user.isSiteAdmin) forbidden()
+  return user
+})
+
 export const requireInstructor = (classroomIdOrSlug: string) =>
   requireClassroomRole(classroomIdOrSlug, ClassroomRole.INSTRUCTOR)
 

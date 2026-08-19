@@ -118,6 +118,7 @@ export const authConfig = {
         image?: string | null
         githubLogin?: string | null
         isSiteAdmin?: boolean
+        isFaculty?: boolean
       } | null
 
       /**
@@ -152,6 +153,7 @@ export const authConfig = {
           image: row?.image ?? null,
           githubLogin: row?.githubLogin ?? null,
           isSiteAdmin: row?.isSiteAdmin ?? false,
+          isFaculty: row?.isFaculty ?? false,
         },
       }
     },

@@ -36,12 +36,18 @@ model User {
   // profile straight into this model, so the field names are its contract.
   image        String?
   isSiteAdmin  Boolean   @default(false)
+  // May create classrooms. Off by default: signing in with GitHub proves only that
+  // you have a GitHub account, and every student has one. Granted by redeeming a
+  // faculty invite, or by being listed in SITE_ADMIN_LOGINS.
+  isFaculty    Boolean   @default(false)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   accounts          Account[]
   sessions          Session[]
   classroomMembers  ClassroomMember[]
+  facultyInvitesCreated  FacultyInvite[]           @relation("FacultyInviteCreator")
+  facultyInviteRedemptions FacultyInviteRedemption[]
   claimedRosterEntry RosterEntry?     @relation("RosterClaim")
   ownedClassrooms   Classroom[]       @relation("ClassroomOwnerToken")
   teamMemberships   TeamMember[]
@@ -194,6 +200,58 @@ model InviteLink {
 
   @@index([classroomId])
   @@map("invite_links")
+}
+
+// ---------------------------------------------------------------------------
+// Faculty access
+// ---------------------------------------------------------------------------
+
+/**
+ * An invitation that grants permission to create classrooms.
+ *
+ * Shaped like InviteLink on purpose — token, expiry, revocation, use cap — because
+ * this link is a privilege escalation if it leaks, and those four fields are what
+ * bound the damage. Default maxUses is 1: a link meant for one colleague should not
+ * silently work for whoever they forward it to.
+ */
+model FacultyInvite {
+  id    String @id @default(cuid())
+  token String @unique
+  /// Who the link was for, so a stale one can be identified before revoking it.
+  note            String?
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  maxUses         Int       @default(1)
+  createdByUserId String
+  createdAt       DateTime  @default(now())
+
+  createdBy   User                      @relation("FacultyInviteCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  redemptions FacultyInviteRedemption[]
+
+  @@index([createdByUserId])
+  @@map("faculty_invites")
+}
+
+/**
+ * One row per user who redeemed an invite.
+ *
+ * A table rather than a counter on the invite: the unique constraint makes
+ * redemption idempotent, so a colleague who reloads the page or clicks the link
+ * twice does not consume two of a two-use invite. It is also the record of who was
+ * let in and when, which a counter cannot give.
+ */
+model FacultyInviteRedemption {
+  id        String   @id @default(cuid())
+  inviteId  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  invite FacultyInvite @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([inviteId, userId])
+  @@index([userId])
+  @@map("faculty_invite_redemptions")
 }
 
 // ---------------------------------------------------------------------------

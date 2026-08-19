@@ -17,6 +17,7 @@ declare module 'next-auth' {
       image: string | null
       githubLogin: string | null
       isSiteAdmin: boolean
+      isFaculty: boolean
     }
   }
 
@@ -25,6 +26,7 @@ declare module 'next-auth' {
     githubId?: string | null
     githubLogin?: string | null
     isSiteAdmin?: boolean
+    isFaculty?: boolean
   }
 }
 

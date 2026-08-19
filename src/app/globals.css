@@ -40,8 +40,19 @@
   --radius: 0.5rem;
 }
 
+/*
+ * Dark values live in one place and are applied by two selectors:
+ *
+ *   1. the system preference, unless the reader has explicitly chosen light
+ *   2. an explicit choice of dark, which must win in both directions
+ *
+ * The `:not([data-theme='light'])` is what makes the toggle able to force light on a
+ * machine set to dark. Without it the media query would keep winning and the control
+ * would appear broken in exactly one direction — the hardest kind of bug to notice,
+ * because it works when you test it on a light machine.
+ */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --background: #0d0f12;
     --surface: #15181d;
     --surface-subtle: #1b1f26;
@@ -63,6 +74,30 @@
     --info: #7cb0f5;
     --info-subtle: #101d31;
   }
+}
+
+/* The same values, for an explicit choice of dark. */
+:root[data-theme='dark'] {
+  --background: #0d0f12;
+  --surface: #15181d;
+  --surface-subtle: #1b1f26;
+  --foreground: #e9ebef;
+  --muted: #9aa2ae;
+  --border: #272c34;
+  --border-strong: #3a414c;
+
+  --accent: #ffc904;
+  --accent-contrast: #14161a;
+  --accent-bright: #ffc904;
+
+  --success: #4ade80;
+  --success-subtle: #10291a;
+  --warning: #fbbf24;
+  --warning-subtle: #2a1f05;
+  --danger: #f87171;
+  --danger-subtle: #2b1213;
+  --info: #7cb0f5;
+  --info-subtle: #101d31;
 }
 
 @theme inline {
@@ -91,6 +126,20 @@
   --font-mono: var(--font-geist-mono);
 
   --radius-DEFAULT: var(--radius);
+}
+
+/*
+ * `color-scheme` drives the native widgets — checkboxes, radios, select arrows, the
+ * date picker, scrollbars. It has to track the explicit choice as well as the system
+ * one, or a reader who forces light on a dark machine gets a light page with dark
+ * form controls.
+ */
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
 }
 
 body {
