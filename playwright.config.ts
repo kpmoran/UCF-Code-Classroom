@@ -63,6 +63,17 @@ export default defineConfig({
        */
       GITHUB_CONTENT_CALLS_PER_MINUTE: '40',
       GITHUB_CONTENT_CALLS_PER_HOUR: '450',
+
+      /**
+       * Pinned here so the suite does not depend on whatever happens to be in a
+       * developer's .env.
+       *
+       * A faculty test asserts that a configuration-listed admin has no "Withdraw"
+       * button, since configuration outranks the database. That passed locally, where
+       * .env happens to list this login, and failed in CI, where nothing does — the
+       * test was reading ambient state rather than state it had set.
+       */
+      SITE_ADMIN_LOGINS: 'kpmoran',
     },
   },
 })

@@ -238,7 +238,34 @@ student work is a much larger decision than "should they be able to start new on
 
 The migration that adds this grants faculty to everyone already recorded as an
 INSTRUCTOR of a classroom, so introducing the gate cannot lock out the people already
-teaching here.
+teaching here — but note the gap: someone who had signed in and *not yet created a
+classroom* is not covered, which includes whoever just deployed it.
+
+### If you have locked yourself out
+
+Symptom: you sign in, and there is no "New classroom" button and no "Faculty access".
+It means neither route to faculty applied — `SITE_ADMIN_LOGINS` is not reaching the
+container, and you had no classroom for the migration to grandfather.
+
+Check the configuration actually arrived, which is the usual cause. Appending to
+`.env` with `>>` when the file has no trailing newline silently joins the new setting
+onto the previous line, and both are then lost:
+
+```bash
+cd /opt/uccc
+tail -3 .env                                              # is the line intact and on its own?
+docker compose exec -T app sh -c 'echo "[$SITE_ADMIN_LOGINS]"'   # did it reach the container?
+```
+
+To get straight back in, set the flags directly — the column is checked as well as the
+configuration:
+
+```bash
+docker compose exec -T postgres psql -U uccc -d uccc \
+  -c 'update users set "isFaculty" = true, "isSiteAdmin" = true where "githubLogin" = '"'"'your-login'"'"';'
+```
+
+Then fix `SITE_ADMIN_LOGINS` properly, because it is what survives a database restore.
 
 ## Light and dark
 
