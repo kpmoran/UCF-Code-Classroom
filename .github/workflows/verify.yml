@@ -136,8 +136,16 @@ jobs:
           key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
 
       # System libraries, which apt handles and the cache above does not cover.
+      #
+      # Non-fatal on purpose. GitHub's ubuntu runner images already ship the libraries
+      # Chromium needs, so this is belt-and-braces — but it shells out to apt-get, which
+      # stalls on the runners often enough to have failed two runs here while the browser
+      # download itself came straight from cache. Blocking the whole suite on a
+      # redundant apt call is the wrong trade: if a library really is missing, the test
+      # step fails immediately with a browser-launch error, which says so.
       - name: Install browser system dependencies
-        timeout-minutes: 8
+        timeout-minutes: 6
+        continue-on-error: true
         run: npx playwright install-deps chromium
 
       - name: Install Chromium
@@ -147,6 +155,16 @@ jobs:
         # Failing fast here says what actually went wrong.
         timeout-minutes: 8
         run: npx playwright install chromium
+
+      # Proves the browser actually launches, so a genuinely missing system library is
+      # reported here rather than as a confusing failure inside the first test.
+      - name: Check the browser launches
+        run: |
+          node -e "
+            const { chromium } = require('@playwright/test');
+            chromium.launch().then(async b => { await b.close(); console.log('chromium launches'); })
+              .catch(e => { console.error('::error title=Browser will not launch::' + e.message); process.exit(1) });
+          "
 
       - name: End-to-end tests
         run: npm run test:e2e
