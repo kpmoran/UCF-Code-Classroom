@@ -2,6 +2,7 @@ import { PrismaAdapter } from '@auth/prisma-adapter'
 import NextAuth, { type NextAuthConfig } from 'next-auth'
 import GitHub from 'next-auth/providers/github'
 
+import { githubProfileToUser } from './profile'
 import { OWNER_PROVIDER_ID } from './providers'
 import { encryptSecret } from '@/lib/crypto'
 import { db } from '@/lib/db'
@@ -71,18 +72,7 @@ export const authConfig = {
       clientId: env.AUTH_GITHUB_ID,
       clientSecret: env.AUTH_GITHUB_SECRET,
       authorization: { params: { scope: 'read:user user:email' } },
-      profile(profile) {
-        return {
-          // Mapped explicitly because the adapter writes this object straight
-          // into the User model, and we want githubId/githubLogin populated on
-          // first sign-in rather than backfilled later.
-          name: profile.name ?? profile.login,
-          email: profile.email,
-          image: profile.avatar_url,
-          githubId: String(profile.id),
-          githubLogin: profile.login,
-        }
-      },
+      profile: githubProfileToUser,
     }),
     GitHub({
       id: OWNER_PROVIDER_ID,
@@ -98,15 +88,7 @@ export const authConfig = {
       // and it is the same GitHub identity, so account linking is expected
       // rather than an attack. Both providers are the same trusted App.
       allowDangerousEmailAccountLinking: true,
-      profile(profile) {
-        return {
-          name: profile.name ?? profile.login,
-          email: profile.email,
-          image: profile.avatar_url,
-          githubId: String(profile.id),
-          githubLogin: profile.login,
-        }
-      },
+      profile: githubProfileToUser,
     }),
   ],
   callbacks: {
