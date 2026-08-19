@@ -64,6 +64,37 @@ services:
       retries: 3
       start_period: 60s
 
+  # Nightly pg_dump, verified and pruned. Same image as the server, because pg_dump
+  # refuses to dump a server newer than itself — pinning both to one tag removes a
+  # failure that would otherwise only appear after a Postgres upgrade.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-uccc}
+      BACKUP_AT: ${BACKUP_AT:-03:30}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./backup/backup.sh:/backup.sh:ro
+      - ./backup/restore.sh:/restore.sh:ro
+      # A host directory, not a named volume, so copying dumps off the machine is
+      # just scp against a path you can see. Which is the point — a backup that
+      # only exists on the disk it is protecting is half a backup.
+      - ./backups:/backups
+    # Split deliberately: with the script in `entrypoint`, a
+    # `docker compose run backup /restore.sh` appends "/restore.sh" as an argument to
+    # the backup loop instead of replacing it — the restore silently becomes a
+    # sleeping backup daemon, which is how the first attempt hung for ten minutes.
+    # Putting the loop in `command` makes it replaceable, which the restore relies on.
+    entrypoint: ['/bin/sh']
+    command: ['/backup.sh']
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped

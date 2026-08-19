@@ -46,3 +46,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Database dumps written by the backup container on the server. Never in git.
+deploy/backups/

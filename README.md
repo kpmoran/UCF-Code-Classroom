@@ -553,9 +553,72 @@ docker compose exec postgres psql -U uccc -d uccc
 docker compose exec -T postgres pg_dump -U uccc uccc | gzip > ~/uccc-$(date +%F).sql.gz
 ```
 
-Nothing here backs up the database automatically. One `pg_dump` on a nightly cron,
-copied off the box, is the difference between a bad afternoon and losing a
-semester of grades.
+### Backups
+
+The `backup` service takes a verified `pg_dump` nightly at 03:30 UTC (set
+`BACKUP_AT`), keeps 14 days (`BACKUP_KEEP_DAYS`), and writes to `/opt/uccc/backups`
+on the host — a plain directory rather than a Docker volume, precisely so copying
+dumps off the machine is just `scp` against a path you can see.
+
+```bash
+cd /opt/uccc
+docker compose logs backup                                  # what it has been doing
+cat backups/LAST_SUCCESS                                    # when it last worked
+docker compose run --rm backup /restore.sh --list           # what is available
+```
+
+Restoring — destructive, and it asks before proceeding:
+
+```bash
+docker compose run --rm backup /restore.sh                  # newest
+docker compose run --rm backup /restore.sh uccc-2026-...dump  # a specific one
+docker compose restart app                                  # reconnect cleanly
+```
+
+Three deliberate choices, each because the obvious version fails quietly:
+
+- **Every dump is verified before anything is pruned.** `pg_restore --list` must parse
+  it, and it must contain at least as many tables as the live database. A job that
+  writes unusable files while deleting good ones on a schedule is worse than no
+  backups, because it replaces a known gap with false confidence.
+- **An empty schema is "nothing to back up", not a failure.** The container starts as
+  soon as Postgres is healthy, which on a fresh deploy is before the app has migrated.
+  Reporting that as an error would train you to ignore this log.
+- **The startup backup is skipped if one exists from the last hour.** `restart:
+  unless-stopped` plus a crash loop would otherwise write a dump per restart, and
+  retention is by age, so a fast enough loop outruns it.
+
+Verified by restoring, not by reading: rows written, dumped, truncated through 13
+cascading tables, restored, and every value checked including booleans — then the app
+health-checked green on top of the restored database.
+
+### Getting backups off the box
+
+**The above is only half a backup.** Dumps on `/opt/uccc/backups` protect you from the
+common disaster — a bad migration, a mistaken delete, a corrupted table. They do not
+survive losing the disk, which is the rarer and worse one.
+
+Simplest fix, from your own machine:
+
+```bash
+rsync -avz --delete \
+  uccc-deploy@45.79.222.44:/opt/uccc/backups/ ~/uccc-backups/
+```
+
+Nightly, in your laptop's crontab:
+
+```
+30 8 * * * rsync -az --delete uccc-deploy@<host>:/opt/uccc/backups/ ~/uccc-backups/
+```
+
+That depends on the laptop being awake, so for something you would rather not think
+about, Linode Object Storage is the proper answer: an S3-compatible bucket the server
+pushes to on its own. It needs an access key pair, which is yours to create — say the
+word and I will add it to the backup container.
+
+A restore you have never performed is a hope, not a plan. Once real grades are in
+there, do a drill: `restore.sh --list`, restore the newest into a scratch database,
+and confirm the row counts. Better to find a problem on a Tuesday than in week 14.
 
 ## Notes on Prisma 7
 
