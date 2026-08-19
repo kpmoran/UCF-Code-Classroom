@@ -74,6 +74,24 @@ export default defineConfig({
        * test was reading ambient state rather than state it had set.
        */
       SITE_ADMIN_LOGINS: 'kpmoran',
+
+      /**
+       * Placeholders, for the same reason: the suite must not depend on whatever is in
+       * a developer's .env.
+       *
+       * The sign-in pages render a "Continue with GitHub" button only when both are
+       * non-empty, and otherwise show a "not configured" notice. Locally .env supplies
+       * real values so the button appeared; CI supplies the GitHub *App* credentials
+       * but not the *OAuth* ones, so two tests looked for a button that was never
+       * rendered.
+       *
+       * Safe as placeholders because nothing here completes an OAuth flow — sessions
+       * are seeded directly, since the GitHub consent screen cannot be automated — and
+       * these values are used for nothing else. The real App credentials, which the
+       * suite genuinely calls GitHub with, come from secrets and are untouched.
+       */
+      AUTH_GITHUB_ID: 'Iv23-e2e-placeholder',
+      AUTH_GITHUB_SECRET: 'e2e-placeholder-secret',
     },
   },
 })
