@@ -1,6 +1,6 @@
 # UCF-Code-Connect
 
-[![CI](https://github.com/kpmoran/UCF-Code-Connect/actions/workflows/ci.yml/badge.svg)](https://github.com/kpmoran/UCF-Code-Connect/actions/workflows/ci.yml)
+[![CI](https://github.com/kpmoran/UCF-Code-Classroom/actions/workflows/ci.yml/badge.svg)](https://github.com/kpmoran/UCF-Code-Classroom/actions/workflows/ci.yml)
 
 A self-hosted GitHub Classroom replacement for UCF courses.
 
@@ -874,6 +874,30 @@ the proxy work, and they fail for entirely different reasons.
 so a bad deploy is a failed workflow rather than an outage.
 
 To roll back by hand, run the Deploy workflow with a `tag` of `sha-<commit>`.
+
+#### The image name is derived, not written down
+
+`deploy.yml` computes `ghcr.io/<github.repository>`, lowercased, at run time. It used
+to be a literal, and **renaming the repository broke the deploy**: `ci.yml` publishes to
+`ghcr.io/${{ github.repository }}` through `docker/metadata-action`, so it followed the
+new name immediately while the deploy kept pulling the old one and died at the pull with
+`failed to resolve reference`. Deriving both from the same source is what stops the
+publisher and the consumer drifting apart. The lowercasing is still needed either way —
+Docker references must be lowercase and `github.repository` preserves the repository's
+real casing.
+
+If the repository is renamed again, note that GHCR does **not** follow it: the old
+package keeps the old images, and CI starts a new package under the new name. The
+running container is unaffected until the next deploy.
+
+#### A rollback rewrites the override file
+
+`docker-compose.override.yml` on the host pins the full image reference, and compose
+merges it over anything the environment says. The rollback used to set `IMAGE_TAG` and
+run `up -d`, which the override quietly ignored — so it re-pulled the tag that had just
+failed and reported success at having changed nothing. It now writes the previous
+reference into the override, which also covers the case where the *name* changed rather
+than just the tag.
 
 ### Operating it
 

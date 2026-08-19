@@ -191,7 +191,7 @@ export function LandingPage() {
           <span>UCF-Code-Connect</span>
           <div className="flex items-center gap-4">
             <a
-              href="https://github.com/kpmoran/UCF-Code-Connect"
+              href="https://github.com/kpmoran/UCF-Code-Classroom"
               className="hover:underline"
               target="_blank"
               rel="noreferrer"

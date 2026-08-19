@@ -102,12 +102,10 @@ jobs:
     environment: production
 
     env:
-      # Lowercased, because Docker image names must be. github.repository preserves the
-      # repository's actual casing — "kpmoran/UCF-Code-Connect" — and docker/metadata-action
-      # silently lowercases it when pushing, so the pushed name and this one disagreed.
-      # It went unnoticed while this was only used in log output; the moment it reached
-      # an actual image reference the deploy failed with "unable to get image".
-      IMAGE: ghcr.io/kpmoran/ucf-code-connect
+      # IMAGE is resolved at run time from github.repository -- see the step below.
+      # It must not be hardcoded: it was, and when the repository was renamed, CI
+      # published under the new name while this pulled the old one, so the deploy
+      # died at the pull and took the rollback with it.
       TAG: ${{ needs.preflight.outputs.tag }}
       APP_DOMAIN: ${{ vars.APP_DOMAIN }}
       SSH_TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
@@ -119,6 +117,20 @@ jobs:
           # rollback would copy the wrong compose file. Pin to the commit the
           # image was built from.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      # Derived from the repository rather than written down, so that renaming the
+      # repository moves the publisher and the consumer together. ci.yml pushes to
+      # ghcr.io/${{ github.repository }} via docker/metadata-action, which lowercases
+      # the name; Docker references must be lowercase and github.repository preserves
+      # the repository's real casing, so the same lowercasing has to happen here.
+      - name: Resolve the image name from the repository
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          echo "resolved image: $image"
 
       # Cheap assertion, because the failure mode is a deploy that dies at the pull with
       # a message about a missing image rather than about capitalisation.
@@ -242,12 +254,27 @@ jobs:
 
       - name: Roll back
         if: failure() && steps.current.outputs.image != ''
+        env:
+          PREVIOUS: ${{ steps.current.outputs.image }}
         run: |
           set -euo pipefail
-          echo "::warning title=Rolling back::Restoring ${{ steps.current.outputs.image }}"
-          previous='${{ steps.current.outputs.image }}'
-          ssh -o BatchMode=yes "$SSH_TARGET" \
-            "cd /opt/uccc && IMAGE_TAG='${previous##*:}' docker compose up -d app"
+          echo "::warning title=Rolling back::Restoring $PREVIOUS"
+          # This has to rewrite the override file, not just set IMAGE_TAG. "Pull and
+          # start" writes the full image reference into the override, and compose
+          # merges that over anything the environment says -- so the old rollback
+          # re-pulled the tag that had just failed and reported success at having
+          # done nothing. Restoring the whole reference also covers the case the
+          # rename exposed, where the name changed and not only the tag.
+          ssh -o BatchMode=yes "$SSH_TARGET" bash -euo pipefail -s -- "$PREVIOUS" <<'REMOTE'
+          cd /opt/uccc
+          cat > docker-compose.override.yml <<OVERRIDE
+          # Written by a rollback, pinning the last image known to serve traffic.
+          services:
+            app:
+              image: $1
+          OVERRIDE
+          docker compose up -d app
+          REMOTE
 
       - name: Summary
         if: always()

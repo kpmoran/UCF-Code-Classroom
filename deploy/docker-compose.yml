@@ -31,7 +31,7 @@ services:
   app:
     # Pinned by the deploy to a commit sha, so what is running is always traceable
     # to a commit and a rollback is a tag change rather than a rebuild.
-    image: ghcr.io/kpmoran/ucf-code-connect:${IMAGE_TAG:-latest}
+    image: ghcr.io/kpmoran/ucf-code-classroom:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env
     environment:
