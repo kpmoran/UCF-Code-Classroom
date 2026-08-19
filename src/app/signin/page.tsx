@@ -38,10 +38,16 @@ export default async function SignInPage(props: PageProps<'/signin'>) {
       </div>
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Sign in to UCF-Code-Connect</CardTitle>
+          <CardTitle>Sign in to continue</CardTitle>
           <CardDescription>
+            {/*
+             * Reached by following a link — a classroom invite, a faculty invitation, or
+             * a bookmarked page — because the proxy sends signed-out visitors here with
+             * `next` set. Worded for that, rather than as a general front door, which is
+             * now the landing page.
+             */}
             Use the GitHub account you will submit coursework with. It gets linked to your
-            entry on the course roster.
+            entry on the course roster, so use the same one all semester.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

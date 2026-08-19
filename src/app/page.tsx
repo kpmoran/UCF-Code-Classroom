@@ -1,5 +1,6 @@
 import Link from 'next/link'
 
+import { LandingPage } from '@/components/landing/landing-page'
 import { SiteHeader } from '@/components/site-header'
 import { Badge } from '@/components/ui/badge'
 import { ButtonLink } from '@/components/ui/button'
@@ -11,23 +12,9 @@ import { ROLE_LABEL } from '@/lib/auth/roles'
 export default async function HomePage() {
   const user = await getCurrentUser()
 
-  if (!user) {
-    return (
-      <>
-        <SiteHeader />
-        <main className="flex-1 flex items-center justify-center p-6">
-          <div className="max-w-xl text-center space-y-4">
-            <h1 className="text-3xl font-semibold">UCF-Code-Connect</h1>
-            <p className="text-muted">
-              Course assignment management backed by GitHub. Sign in to see your classrooms
-              and assignments.
-            </p>
-            <ButtonLink href="/signin">Sign in</ButtonLink>
-          </div>
-        </main>
-      </>
-    )
-  }
+  // Visitors get the marketing page; members get their classrooms. Students never
+  // see the former — they arrive on /join/<token> from an instructor's link.
+  if (!user) return <LandingPage />
 
   const memberships = await listMyClassrooms()
   const staffOf = memberships.filter((m) => m.role !== 'STUDENT')

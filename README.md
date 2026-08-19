@@ -204,6 +204,40 @@ Three levels:
 | Faculty | ✅ | ✅ | — |
 | Site admin | ✅ | ✅ | ✅ |
 
+### The front page, and the two doors
+
+`/` is a public landing page for signed-out visitors and the classroom dashboard for
+everyone else. It is written for faculty deciding whether to use this, because they are
+the only people who reach it without a link — students arrive on `/join/<token>` and
+never see it. The page it replaced was a bare "Sign in" button addressed to nobody,
+which read as a wall.
+
+There is no generic sign-in on it. The ways in are specific:
+
+| Who | Where |
+|---|---|
+| Students | the invite link their instructor sends |
+| Faculty | the invitation link an administrator sends |
+| Administrators | `/admin/signin`, linked discreetly in the footer |
+
+`/admin/signin` is **framing, not a permission check**. There is one authentication
+mechanism — GitHub OAuth — so it is the same button pointed at a different destination.
+Anyone may open it and sign in, and will land on an empty dashboard unless
+`SITE_ADMIN_LOGINS` names them. It has to be in the proxy's public list, because the
+only people it serves are signed out; leaving it behind the cookie wall bounced them to
+`/signin` and made it a link to nowhere.
+
+**`/signin` must keep existing.** The proxy sends signed-out visitors there with `next`
+set, which is how every classroom invite link works. Removing it would dead-end student
+registration.
+
+Motion on the landing page runs through two classes, `uccc-flow` and `uccc-rise`, so
+`prefers-reduced-motion` switches all of it off in one rule — including anything added
+later. The entrance animation resolves to its final state rather than being removed,
+because an animation that starts at `opacity: 0` and is simply disabled leaves the
+content invisible forever, which is a far worse outcome for the reader who asked for
+less motion.
+
 ### Signing in is open, deliberately
 
 Anyone with a GitHub account can sign in. That is a decision, not an oversight, and it
