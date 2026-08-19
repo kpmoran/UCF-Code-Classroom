@@ -204,6 +204,39 @@ Three levels:
 | Faculty | ✅ | ✅ | — |
 | Site admin | ✅ | ✅ | ✅ |
 
+### Signing in is open, deliberately
+
+Anyone with a GitHub account can sign in. That is a decision, not an oversight, and it
+is the same thing GitHub Classroom does.
+
+Signing in grants nothing. Measured against a signed-in account with no invitation:
+
+| | |
+|---|---|
+| Dashboard | 200 — empty, with guidance on how to get access |
+| `/classrooms/new`, `/admin/faculty` | **403** |
+| Any classroom, roster, gradebook, assignment | **404** |
+
+Note the 404 rather than 403: a stranger cannot even confirm a classroom exists. The
+only trace of them is one `users` row with no memberships.
+
+It has to work this way, because students sign in *before* they claim a roster entry —
+that is the registration flow. Requiring an invitation to sign in at all would mean a
+student who signs in before opening the link hits a dead end, which is support load in
+week one for no gain, given that a bare account can reach nothing.
+
+**The classroom invite link is the real boundary**, and it is worth knowing what it is
+not: anyone signed in who has the URL can open the join page and claim an unclaimed
+roster entry. Possessing the link is the check. That is also GitHub Classroom's model,
+and it means a forwarded link could let an outsider claim a student's identity and
+repository.
+
+Judged acceptable here because the link is shared only inside a course, every claim is
+recorded in the audit log, and an instructor can unlink a mis-claimed entry from the
+roster page, which frees it to be claimed again. If that trade stops being acceptable —
+a larger course, a link that leaked — the fix is per-student claim codes, mail-merged
+from the roster, so the link alone is not enough.
+
 **Site admins come from configuration, not the database.** `SITE_ADMIN_LOGINS` is a
 comma-separated list of GitHub logins, read on every request:
 
