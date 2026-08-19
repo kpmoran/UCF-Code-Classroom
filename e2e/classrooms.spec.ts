@@ -197,9 +197,26 @@ test('a student cannot reach instructor settings, and a non-member gets 404', as
   // Staff-only controls are absent.
   await expect(page.getByRole('link', { name: 'Settings' })).toHaveCount(0)
 
-  // Member with too low a role => 403.
-  const settingsResponse = await page.goto(`/classrooms/${EXPECTED_SLUG}/settings`)
-  expect(settingsResponse?.status()).toBe(403)
+  /*
+   * Member with too low a role => 403, on every staff route.
+   *
+   * The status is asserted, not just the absence of content, because the two can
+   * come apart. Giving a route a `loading.tsx` makes Next flush that shell — with a
+   * 200 — before the page component runs, so the `forbidden()` inside it can no
+   * longer set the status: the body is correct and the status lies. Anything reading
+   * the status rather than the body (monitoring, a crawler, a fetch in a script)
+   * would be told the request succeeded.
+   *
+   * Both staff routes are listed so that adding a loading state to either one is
+   * caught here rather than in production.
+   */
+  for (const route of ['settings', 'assignments/new']) {
+    const response = await page.goto(`/classrooms/${EXPECTED_SLUG}/${route}`)
+    expect(response?.status(), `GET /${route} as a student`).toBe(403)
+    // And nothing staff-only leaked into the body either way.
+    await expect(page.getByRole('heading', { name: 'Classroom settings' })).toHaveCount(0)
+    await expect(page.getByLabel('Repository name prefix')).toHaveCount(0)
+  }
 
   // A signed-in non-member => 404, so classroom slugs are not enumerable.
   const outsider = await seedSession('e2e-outsider')

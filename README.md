@@ -547,10 +547,16 @@ Two details worth keeping:
   the same failure as an uncontrolled field being reset by a form action, but landing
   mid-word. Keeping one mounted instance is what makes `typing survives the suggestions
   arriving` pass.
-* `loading.tsx` gives the route an instant skeleton, so a click is acknowledged even when
-  the server is slow for some other reason. It is deliberately static — it cannot call
-  `SiteHeader`, which is async, because a fallback that awaits something is not a
-  fallback.
+* There is deliberately **no `loading.tsx`** on these routes, and that is worth knowing
+  before adding one. A route-level loading file makes Next flush that shell — with a
+  **200** — before the page component runs, so a `forbidden()` inside the page can no
+  longer set the status. The body is still correct (a student sees the forbidden page and
+  no settings), but the status lies, and anything reading the status rather than the body
+  is told the request succeeded. It was measured: with a `loading.tsx`, `/settings` and
+  `/assignments/new` returned 200 to a student while `/roster`, which had none, correctly
+  returned 403. The skeleton was worth about five milliseconds of cosmetics once the
+  blocking calls were gone, so it lost. `a student cannot reach instructor settings` now
+  asserts the status on both routes.
 
 `listTemplateRepos` also stopped paginating the whole organization. It asks the search
 API for `org:<org> template:true`, which is one request instead of one per hundred
@@ -561,8 +567,18 @@ is the case that matters, since course templates usually are. Search is a separa
 with its own rate limit and can lag repository creation by a few seconds, so the
 exhaustive listing remains as a fallback and the field still takes free text.
 
-One page still does this: **classroom settings** checks organization ownership live while
-rendering, and costs about 200ms for the same reason.
+**Classroom settings** had the same shape and is fixed the same way, except that there the
+answer is streamed rather than fetched by the client. The live ownership check decides
+which of two badges to show, and used to run before the page replied — delaying the
+settings form, the invite panel and the archive controls, none of which depend on it. The
+card now renders immediately with the organization name, which the database already knows,
+and the badge arrives over the stream: **~16ms to first byte against ~200–270ms**, with
+the badge landing about 150ms later.
+
+Note that Suspense is right there and was wrong for the template picker. The deciding
+question is whether the subtree holds state a person owns: replacing a badge when the data
+lands costs nothing, whereas re-mounting a text field discards what was being typed. Same
+mechanism, opposite conclusion.
 
 ## Rate limits
 

@@ -1,16 +1,19 @@
 import Link from 'next/link'
+import { Suspense } from 'react'
 
 import { AddStudentForm } from '@/components/add-student-form'
 import { ArchiveForm } from '@/components/archive-classroom-form'
+import {
+  OrgOwnershipPanel,
+  OrgOwnershipSkeleton,
+} from '@/components/classroom-org-panel'
 import { ClassroomSettingsForm } from '@/components/classroom-settings-form'
 import { InviteLinkPanel } from '@/components/invite-link-panel'
 import { SiteHeader } from '@/components/site-header'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { requireInstructor } from '@/lib/auth/dal'
 import { db } from '@/lib/db'
 import { env } from '@/lib/env'
-import { checkOrgOwnership } from '@/lib/github/operations/orgs'
 
 export default async function ClassroomSettingsPage(
   props: PageProps<'/classrooms/[slug]/settings'>,
@@ -41,17 +44,6 @@ export default async function ClassroomSettingsPage(
     }),
   ])
 
-  // Re-checked live rather than cached: an instructor's org role can change
-  // between terms, and a stale "you're an owner" is worse than no answer.
-  let ownership: { isOwner: boolean; reason?: string } = { isOwner: false }
-  try {
-    ownership = user.githubLogin
-      ? await checkOrgOwnership(full.installationId, full.githubOrgLogin, user.githubLogin)
-      : { isOwner: false, reason: 'Your account has no linked GitHub login.' }
-  } catch {
-    ownership = { isOwner: false, reason: 'Could not reach GitHub to check your role.' }
-  }
-
   const joinUrl = inviteLink
     ? `${env.APP_URL.replace(/\/$/, '')}/join/${inviteLink.token}`
     : null
@@ -78,27 +70,15 @@ export default async function ClassroomSettingsPage(
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <a
-                href={`https://github.com/${full.githubOrgLogin}`}
-                target="_blank"
-                rel="noreferrer"
-                className="font-mono hover:underline"
-              >
-                {full.githubOrgLogin}
-              </a>
-              {ownership.isOwner ? (
-                <Badge tone="success">You are an organization Owner</Badge>
-              ) : (
-                <Badge tone="warning">Not confirmed as Owner</Badge>
-              )}
-            </div>
-            {!ownership.isOwner && ownership.reason ? (
-              <p className="text-muted">
-                {ownership.reason} Individual assignments are unaffected; group assignments
-                create GitHub teams, which may require Owner rights.
-              </p>
-            ) : null}
+            {/* Streamed: asking GitHub who you are must not hold up the settings
+                form or the archive controls, which do not depend on the answer. */}
+            <Suspense fallback={<OrgOwnershipSkeleton orgLogin={full.githubOrgLogin} />}>
+              <OrgOwnershipPanel
+                installationId={full.installationId}
+                orgLogin={full.githubOrgLogin}
+                githubLogin={user.githubLogin}
+              />
+            </Suspense>
           </CardContent>
         </Card>
 
