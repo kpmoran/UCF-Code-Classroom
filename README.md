@@ -253,6 +253,19 @@ than either motion setting, and easy to ship without noticing. There is a test a
 no element is left transparent under **either** preference, which stays true regardless
 of which way the decision goes.
 
+### The `dark:` variant is redefined
+
+`globals.css` overrides Tailwind's `dark:` variant so it matches the design tokens: the
+system asks for dark *and* the reader has not overridden to light, or the reader chose
+dark explicitly.
+
+Without that override the variant keys off `prefers-color-scheme` alone while the theme
+follows `data-theme`, and the two disagree in exactly the cases the toggle exists for. It
+showed up as the UCF mark going invisible — white on a forced-light page, black on a
+forced-dark one — and only for readers whose system setting opposed their choice, which
+is why it survived review on machines that agreed with their owner. Any `dark:` utility
+added later would have inherited the same fault.
+
 ### Signing in is open, deliberately
 
 Anyone with a GitHub account can sign in. That is a decision, not an oversight, and it

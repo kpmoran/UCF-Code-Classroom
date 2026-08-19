@@ -142,3 +142,43 @@ test('a signed-in reader keeps their choice across pages', async ({ browser }) =
   expect(await bodyBackground(page)).toBe(DARK_BG)
   await context.close()
 })
+
+test('the logo stays visible in every theme and override combination', async ({ browser }) => {
+  /*
+   * The mark is solid black artwork, shown as-is on a light surface and inverted to
+   * white on a dark one. What makes this worth a test is that Tailwind's `dark:`
+   * variant keys off prefers-color-scheme by default, while the toggle drives
+   * data-theme — so the two disagree in exactly the cases the toggle exists for, and
+   * the logo went invisible only for readers whose system setting opposed their
+   * choice. Nobody testing on a machine that agrees with them would ever see it.
+   */
+  for (const [scheme, forced] of [
+    ['dark', null],
+    ['light', null],
+    ['dark', 'light'],
+    ['light', 'dark'],
+  ] as const) {
+    const context = await browser.newContext({ colorScheme: scheme })
+    const page = await context.newPage()
+    await page.goto('/')
+
+    if (forced) {
+      await page.getByRole('radio', { name: new RegExp(`Always use the ${forced} theme`) }).click()
+    }
+
+    const state = await page.evaluate(() => {
+      const img = document.querySelector('header img') as HTMLElement | null
+      const header = document.querySelector('header') as HTMLElement | null
+      return {
+        inverted: img ? getComputedStyle(img).filter.includes('invert') : null,
+        headerIsDark: header
+          ? getComputedStyle(header).backgroundColor !== 'rgb(255, 255, 255)'
+          : null,
+      }
+    })
+
+    // Inverted exactly when the surface behind it is dark. Equal means visible.
+    expect(state.inverted, `system=${scheme} forced=${forced ?? 'auto'}`).toBe(state.headerIsDark)
+    await context.close()
+  }
+})

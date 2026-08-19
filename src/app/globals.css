@@ -1,6 +1,31 @@
 @import 'tailwindcss';
 
 /*
+ * Teach the `dark:` variant the same rule the design tokens use.
+ *
+ * By default it keys off `prefers-color-scheme` alone, while the theme is driven by
+ * `data-theme` as soon as the reader touches the toggle. The two then disagree in
+ * exactly the cases the toggle exists for, and a `dark:` utility contradicts the
+ * surface it sits on: the black UCF mark stayed black on a forced-dark page, and went
+ * white on a forced-light one — invisible both ways, and only on the machines whose
+ * system setting opposed the choice, which is why it survived review.
+ *
+ * Same two conditions as the tokens: the system asks for dark and the reader has not
+ * overridden to light, or the reader explicitly chose dark.
+ */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme='light']) *) {
+      @slot;
+    }
+  }
+
+  &:where(:root[data-theme='dark'] *) {
+    @slot;
+  }
+}
+
+/*
  * Design tokens. UCF's palette is black and gold; gold is used sparingly as an
  * accent because at full saturation it fails contrast against white for text.
  * Every color is defined here on `:root` first, then overridden for dark mode,
