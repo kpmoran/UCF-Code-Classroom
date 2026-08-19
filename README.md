@@ -110,10 +110,20 @@ Go to **Organization Settings → Developer settings → GitHub Apps → New Git
 | Permission | Access | Needed for |
 |---|---|---|
 | Administration | Read & write | Creating repositories in the org |
-| Contents | Read & write | Reading templates, injecting the autograding workflow |
+| Contents | Read & write | Reading templates, writing files |
+| **Workflows** | **Read & write** | Writing `.github/workflows/` for autograding |
 | Pull requests | Read & write | Feedback pull requests |
 | Actions | Read-only | Reading autograding workflow runs and artifacts |
 | Metadata | Read-only | Mandatory |
+
+`Workflows` is separate from `Contents` and easy to miss: writing any file under
+`.github/workflows/` needs it *in addition* to `Contents`, and GitHub refuses with a
+generic 403 whose body says nothing about which permission is missing — the real
+requirement appears only in the `x-accepted-github-permissions` response header.
+`src/lib/github/errors.ts` detects that header and says so explicitly, because the
+first time this happened it cost an afternoon. Note also that adding a permission to
+an existing App is **two steps**: save it on the App, then accept the request on the
+installation.
 
 **Organization permissions:**
 
@@ -125,7 +135,10 @@ Go to **Organization Settings → Developer settings → GitHub Apps → New Git
 Write access on Members is required because group assignments create teams and add
 students to them. Read-only is not enough.
 
-**Subscribe to events:** `Workflow run`, `Push`, `Repository`, `Member`, `Organization`
+**Subscribe to events:** `Workflow run` and `Push` — those are the only two
+`src/app/api/webhooks/github/route.ts` acts on. Anything else is acknowledged and
+discarded, so subscribing more widely just adds deliveries that do nothing. (`ping`
+arrives whether you subscribe or not, when the webhook is first saved.)
 
 ### 3. Collect credentials into `.env`
 
