@@ -323,6 +323,20 @@ one already holds, and the form suggests giving each assignment a distinct repos
 prefix, which is what actually keeps the names readable when a term's `hw1-` sits beside
 the last term's.
 
+### The favicon brings its own background
+
+The Pegasus artwork is solid black on transparency. The site header can show it as-is on
+a light surface and invert it to white on a dark one, because the page knows which theme
+it is in — a favicon does not. A bare mark would be a black shape on the near-black tab
+strip of any browser in dark mode, so the icon sits on a UCF-gold plate instead and reads
+the same either way.
+
+The mark is inset only 6% of the icon's width, which looks tight at 512px and is the
+point: at 16px the Pegasus is at the edge of legibility, and ordinary padding thins its
+strokes past one pixel and turns it into a smudge. `scripts/build-icons.mjs` renders each
+size from the 192px original rather than downscaling one large composite, so the artwork
+is resampled once. Look at a 16px render before changing either number.
+
 ### Signing in is open, deliberately
 
 Anyone with a GitHub account can sign in. That is a decision, not an oversight, and it
@@ -538,6 +552,7 @@ ETA. **Do not raise these limits to speed it up** — jobs will start failing wi
 | `npm run db:seed` | Load development data |
 | `npm run db:clean-tests` | Remove accounts and classrooms left by the test suites |
 | `npm run db:studio` | Prisma Studio |
+| `npm run build:icons` | Regenerate the favicon and app icons from `public/ucf-pegasus.png` |
 
 ## Project layout
 

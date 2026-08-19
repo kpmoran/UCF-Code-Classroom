@@ -20,7 +20,8 @@
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
     "test:github": "vitest run --config vitest.integration.config.mts",
-    "db:clean-tests": "tsx scripts/clean-test-data.ts"
+    "db:clean-tests": "tsx scripts/clean-test-data.ts",
+    "build:icons": "node scripts/build-icons.mjs"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
