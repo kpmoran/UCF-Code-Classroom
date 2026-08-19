@@ -49,3 +49,7 @@ next-env.d.ts
 
 # Database dumps written by the backup container on the server. Never in git.
 deploy/backups/
+
+# Written on the server by the deploy to pin the image. Never in git.
+deploy/docker-compose.override.yml
+docker-compose.override.yml

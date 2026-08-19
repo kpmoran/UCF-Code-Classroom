@@ -162,9 +162,27 @@ jobs:
       - name: Pull and start
         run: |
           set -euo pipefail
-          ssh -o BatchMode=yes "$SSH_TARGET" bash -euo pipefail -s -- "$TAG" <<'REMOTE'
+          ssh -o BatchMode=yes "$SSH_TARGET" bash -euo pipefail -s -- "$TAG" "$IMAGE" <<'REMOTE'
           cd /opt/uccc
           export IMAGE_TAG="$1"
+
+          # Pin the exact image in an override file, which compose merges automatically.
+          #
+          # Without this, the base file's ${IMAGE_TAG:-latest} means a bare
+          # `docker compose up -d` — the natural thing to run after editing .env —
+          # silently swaps the running container from the deployed commit to whatever
+          # :latest happens to be, or fails to start because the host is logged out of
+          # a private registry. An override file fixes it for every compose command
+          # without touching .env, where the secrets live.
+          cat > docker-compose.override.yml <<OVERRIDE
+          # Written by the deploy. Pins the image so a plain 'docker compose up -d'
+          # reuses exactly what was deployed. Safe to delete; the next deploy
+          # rewrites it.
+          services:
+            app:
+              image: $2:$1
+          OVERRIDE
+
           docker compose pull app
           # The container entrypoint applies pending migrations before serving.
           docker compose up -d --remove-orphans
