@@ -34,6 +34,17 @@ services:
     image: ghcr.io/kpmoran/ucf-code-connect:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env
+    environment:
+      # Auth.js builds OAuth callback URLs from the request's own origin, and Next.js
+      # in standalone mode reports its bind address — HOSTNAME=0.0.0.0, set in the
+      # Dockerfile so it listens on all interfaces — rather than the public host. So
+      # without this, every redirect_uri is https://0.0.0.0:3000/... and GitHub
+      # rejects the sign-in. `trustHost` does not help: redirect_uri comes from the
+      # request URL, not from the Host header.
+      #
+      # Derived from APP_URL rather than set separately, so the canonical origin has
+      # exactly one definition and the two cannot drift apart.
+      AUTH_URL: ${APP_URL:?set APP_URL in .env}
     depends_on:
       postgres:
         condition: service_healthy
