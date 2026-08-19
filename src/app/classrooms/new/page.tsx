@@ -36,14 +36,27 @@ export default async function NewClassroomPage() {
           : 'Could not reach GitHub.'
   }
 
-  // An org already backing a classroom is not offered again: two classrooms in
-  // one org would generate colliding repository names.
+  /*
+   * Organizations already hosting a classroom are still offered.
+   *
+   * They were excluded, on the stated grounds that two classrooms in one org would
+   * collide on repository names. That reason does not hold: buildRepoName is prefixed
+   * per assignment and dedupeRepoName already suffixes against the live repository
+   * list, so collisions were handled before this rule existed.
+   *
+   * What the rule did do is force one organization per course — meaning a second course,
+   * or simply next semester's run of the same one, needed a whole new GitHub
+   * organization. That is not a trade worth making to prevent something already
+   * prevented, so the count is surfaced as information instead.
+   */
   const used = await db.classroom.findMany({ select: { githubOrgId: true, name: true } })
-  const usedOrgIds = new Map(used.map((c) => [c.githubOrgId.toString(), c.name]))
+  const classroomsPerOrg = new Map<string, number>()
+  for (const c of used) {
+    const key = c.githubOrgId.toString()
+    classroomsPerOrg.set(key, (classroomsPerOrg.get(key) ?? 0) + 1)
+  }
 
-  const available = installations.filter(
-    (i) => !usedOrgIds.has(i.orgId.toString()),
-  )
+  const available = installations
 
   // Derived from the API, not configured: the slug differs per App registration, and a
   // hardcoded link would point colleagues at the wrong App.
@@ -84,26 +97,14 @@ export default async function NewClassroomPage() {
             <CardHeader>
               <CardTitle>No GitHub organization available</CardTitle>
               <CardDescription>
-                {installations.length === 0
-                  ? 'The app is not installed on any organization you belong to.'
-                  : 'Every organization you belong to already has a classroom.'}
+                The app is not installed on any organization you belong to.
               </CardDescription>
             </CardHeader>
             <CardContent className="text-sm space-y-3">
-              {installations.length > 0 ? (
-                <ul className="space-y-1 text-muted">
-                  {installations.map((i) => (
-                    <li key={i.installationId.toString()} className="font-mono text-xs">
-                      {i.orgLogin} → “{usedOrgIds.get(i.orgId.toString())}”
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-
               <p className="text-muted">
-                {installations.length === 0
-                  ? 'Install it on the organization for your course, granting access to all repositories — it needs to create repositories that do not exist yet.'
-                  : 'To use a different organization, install the app there too, granting access to all repositories.'}
+                Install it on the organization for your course, granting access to{' '}
+                <strong>all repositories</strong> — it needs to create repositories that do
+                not exist yet.
               </p>
 
               {appUrl ? (
@@ -157,6 +158,7 @@ export default async function NewClassroomPage() {
                 installationId: i.installationId.toString(),
                 orgLogin: i.orgLogin,
                 repositorySelection: i.repositorySelection,
+                existingClassrooms: classroomsPerOrg.get(i.orgId.toString()) ?? 0,
               }))}
             />
 

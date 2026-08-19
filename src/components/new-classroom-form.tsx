@@ -13,6 +13,8 @@ type InstallationOption = {
   installationId: string
   orgLogin: string
   repositorySelection: string
+  /** How many classrooms already live in this org. Informational, never a block. */
+  existingClassrooms: number
 }
 
 function SubmitButton() {
@@ -57,11 +59,17 @@ export function NewClassroomForm({ installations }: { installations: Installatio
               {installations.map((i) => (
                 <option key={i.installationId} value={i.installationId}>
                   {i.orgLogin}
+                  {i.existingClassrooms > 0
+                    ? ` — already hosts ${i.existingClassrooms} classroom${i.existingClassrooms === 1 ? '' : 's'}`
+                    : ''}
                 </option>
               ))}
             </Select>
             <FieldHint>
               Assignment repositories are created here. This cannot be changed later.
+              {installations.some((i) => i.existingClassrooms > 0)
+                ? ' Sharing an organization between classrooms is fine — a new term of the same course usually should. Give each assignment a distinct repository prefix so the names stay readable.'
+                : ''}
             </FieldHint>
             {fieldError('installationId') ? (
               <FieldError>{fieldError('installationId')}</FieldError>

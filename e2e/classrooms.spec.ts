@@ -16,7 +16,8 @@ const TERM = 'Fall 2026'
 const EXPECTED_SLUG = 'e2e4331-fall-2026'
 
 test.beforeEach(async () => {
-  // Remove any classroom left by a previous run so the org is selectable again.
+  // Remove any classroom left by a previous run: the slug is unique, so a leftover
+  // row fails the create rather than the org being unavailable.
   await db.classroom.deleteMany({
     where: { OR: [{ slug: { startsWith: 'e2e4331' } }, { name: CLASSROOM_NAME }] },
   })
@@ -74,10 +75,21 @@ test('instructor creates a classroom, edits settings, and archives it', async ({
   })
   expect(audit).not.toBeNull()
 
-  // --- Duplicate org is refused ------------------------------------------
+  // --- A second classroom may share the org -------------------------------
+  /*
+   * This assertion used to be the exact opposite: an org backing a classroom was
+   * removed from the list. The stated reason was colliding repository names, which
+   * dedupeRepoName had always handled by suffixing against the live org repo list —
+   * so the rule prevented nothing and cost a lot. It meant one organization per
+   * course, and next term's run of the same course needed a whole new organization.
+   *
+   * So the org stays selectable, and says what it already holds.
+   */
   await page.goto('/classrooms/new')
-  // The org now backs a classroom, so it must no longer be offered.
-  await expect(page.getByText('No GitHub organization available')).toBeVisible()
+  await expect(page.getByText('No GitHub organization available')).toHaveCount(0)
+  await expect(
+    page.getByRole('option', { name: new RegExp(`${ORG}.*already hosts 1 classroom`) }),
+  ).toHaveCount(1)
 
   // --- Settings -----------------------------------------------------------
   await page.goto(`/classrooms/${EXPECTED_SLUG}/settings`)

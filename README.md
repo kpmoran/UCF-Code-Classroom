@@ -305,6 +305,24 @@ somewhere sees "not installed" and reasonably concludes the page is broken. An
 organization whose membership could not be confirmed is excluded and reported too, since
 an unverifiable membership is exactly the case the gate exists for.
 
+#### One organization can back many classrooms
+
+It used to back only one: any organization already hosting a classroom was dropped from
+the picker, on the stated grounds that two classrooms in one organization would generate
+colliding repository names. That was not true — `dedupeRepoName` appends a numeric suffix
+after checking the organization's live repository list, so collisions were already
+handled before the rule existed.
+
+What the rule did cost was real. It meant one organization per course, so the spring run
+of the same course needed a brand-new organization, a fresh App installation, and a fresh
+ownership check — and the symptom was the picker saying every organization you belong to
+already has a classroom, with no way forward.
+
+So an organization may back as many classrooms as you like. The picker names how many each
+one already holds, and the form suggests giving each assignment a distinct repository
+prefix, which is what actually keeps the names readable when a term's `hw1-` sits beside
+the last term's.
+
 ### Signing in is open, deliberately
 
 Anyone with a GitHub account can sign in. That is a decision, not an oversight, and it
