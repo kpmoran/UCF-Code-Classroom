@@ -17,7 +17,7 @@ test.afterAll(async () => {
 test('a visitor gets the landing page, not a sign-in prompt', async ({ page }) => {
   await page.goto('/')
 
-  await expect(page.getByRole('heading', { level: 1 })).toContainText(/Coursework on real GitHub/)
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(/Coursework on GitHub/)
   await expect(page.getByText(/turns a Canvas roster into per-student/)).toBeVisible()
 
   // The old page was a bare "Sign in" button addressed to nobody. It must not return.
@@ -43,7 +43,7 @@ test('a signed-in member sees their classrooms rather than marketing', async ({
   await page.goto('/')
 
   await expect(page.getByRole('heading', { name: 'Classrooms' })).toBeVisible()
-  await expect(page.getByRole('heading', { level: 1 })).not.toContainText(/Coursework on real/)
+  await expect(page.getByRole('heading', { level: 1 })).not.toContainText(/Coursework on GitHub/)
 })
 
 test('the administrator door signs in and lands on faculty access', async ({ page }) => {

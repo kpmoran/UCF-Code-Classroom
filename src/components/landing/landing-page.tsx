@@ -81,7 +81,7 @@ export function LandingPage() {
             Course tooling for computer science
           </p>
           <h1 className="mt-3 text-4xl sm:text-5xl font-semibold tracking-tight text-balance">
-            Coursework on real GitHub, managed from one place
+            Coursework on GitHub, managed from one place
           </h1>
           <p className="mt-5 mx-auto max-w-2xl text-lg text-muted text-pretty">
             UCF Code Classroom turns a Canvas roster into per-student GitHub repositories,
