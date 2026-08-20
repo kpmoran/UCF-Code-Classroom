@@ -99,6 +99,43 @@ export function LandingPage() {
           </div>
         </section>
 
+        {/*
+          * Click to play, not an autoplaying background loop.
+          *
+          * This is a 30-second explainer with a title card, six captioned steps and
+          * an outro, scored to music — it is meant to be watched once, deliberately,
+          * not looped silently behind text. Autoplay would also mean every visitor
+          * downloads three megabytes whether they want it or not, and browsers mute
+          * autoplaying video anyway, which would throw away the soundtrack.
+          *
+          * `preload="metadata"` keeps the page light: the poster frame is what loads,
+          * and the video itself only arrives when someone presses play.
+          *
+          * No captions track, deliberately: there is no speech in it, only music and
+          * on-screen text. A caption file that says "[music]" helps nobody.
+          */}
+        <section className="mx-auto max-w-4xl px-6 pb-4" aria-labelledby="video-heading">
+          <h2 id="video-heading" className="sr-only">
+            Watch a short tour
+          </h2>
+          <video
+            controls
+            preload="metadata"
+            poster="/promo-poster.png"
+            className="w-full rounded-xl border border-border bg-surface shadow-2xl"
+          >
+            <source src="/promo.mp4" type="video/mp4" />
+            Your browser cannot play this video.{' '}
+            <a href="/promo.mp4" className="underline">
+              Download it instead
+            </a>
+            .
+          </video>
+          <p className="mt-3 text-center text-sm text-muted">
+            A 30-second tour — roster import through to grade export. No sound needed.
+          </p>
+        </section>
+
         <section
           id="how-it-works"
           className="mx-auto max-w-6xl px-6 py-12 scroll-mt-8"

@@ -119,6 +119,41 @@ test('the diagram carries a text alternative and is repeated in prose', async ({
   await expect(page.getByText(/Autograded scores collect/)).toBeVisible()
 })
 
+test('the tour video is offered without autoplaying at the visitor', async ({ page }) => {
+  /*
+   * A 30-second explainer with music is meant to be watched on purpose, so the
+   * negative assertions are the interesting ones: no autoplay, no loop, and
+   * preload kept off the critical path. Getting this wrong means every visitor
+   * downloads three megabytes and hears nothing, since browsers mute autoplay.
+   */
+  await page.goto('/')
+
+  const video = page.locator('video')
+  await expect(video).toHaveCount(1)
+  await expect(video).toHaveAttribute('poster', '/promo-poster.png')
+  await expect(video).toHaveAttribute('preload', 'metadata')
+
+  const flags = await video.evaluate((el: HTMLVideoElement) => ({
+    autoplay: el.autoplay,
+    loop: el.loop,
+    controls: el.controls,
+    source: el.querySelector('source')?.getAttribute('src'),
+  }))
+  expect(flags.autoplay).toBe(false)
+  expect(flags.loop).toBe(false)
+  expect(flags.controls).toBe(true)
+  expect(flags.source).toBe('/promo.mp4')
+
+  // The file is actually served, and is a video — a broken poster with a dead
+  // source would look identical until someone pressed play.
+  const head = await page.request.get('/promo.mp4')
+  expect(head.status()).toBe(200)
+  expect(head.headers()['content-type']).toContain('video/mp4')
+
+  const poster = await page.request.get('/promo-poster.png')
+  expect(poster.status()).toBe(200)
+})
+
 test('the landing page renders in both themes', async ({ browser }) => {
   for (const [scheme, expected] of [
     ['dark', 'rgb(13, 15, 18)'],

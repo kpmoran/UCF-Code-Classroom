@@ -1,0 +1,213 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14171c;
+    --ink: #f2f4f7;
+    --muted: #98a1ae;
+    --gold: #ffc904;
+    --line: #262c34;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(1100px 700px at 78% -10%, rgba(255,201,4,0.10), transparent 60%),
+      radial-gradient(900px 600px at 5% 110%, rgba(255,201,4,0.05), transparent 60%),
+      var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    display: grid;
+    place-items: center;
+  }
+
+  /* ---------- shared chrome ---------- */
+  .stage { position: relative; width: 1920px; height: 1080px; }
+
+  .brand {
+    position: absolute; left: 84px; top: 64px;
+    display: flex; align-items: center; gap: 14px;
+    font-family: 'Archivo', sans-serif; font-weight: 600; font-size: 26px;
+    letter-spacing: -0.01em;
+  }
+  .brand img { width: 34px; height: 34px; filter: invert(1); }
+
+  .site {
+    position: absolute; right: 84px; bottom: 60px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 20px; color: var(--muted);
+  }
+
+  .caption {
+    position: absolute; left: 84px; bottom: 56px; max-width: 900px;
+  }
+  .kicker {
+    font-family: 'IBM Plex Mono', monospace; font-size: 17px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--gold); margin-bottom: 12px;
+  }
+  .headline {
+    font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 44px;
+    line-height: 1.1; letter-spacing: -0.02em; text-wrap: balance;
+  }
+  .sub { font-size: 21px; color: var(--muted); margin-top: 12px; max-width: 760px; }
+
+  /* ---------- app window ---------- */
+  .window {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    top: 148px; width: 1560px;
+    border-radius: 14px; overflow: hidden;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    box-shadow: 0 50px 120px -30px rgba(0,0,0,0.9), 0 0 0 1px rgba(255,255,255,0.03);
+  }
+  .titlebar {
+    height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 18px;
+    background: #10131781; border-bottom: 1px solid var(--line);
+  }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: #333a44; }
+  .url {
+    margin-left: 14px; font-family: 'IBM Plex Mono', monospace; font-size: 15px;
+    color: var(--muted); background: #0d1014; border: 1px solid var(--line);
+    padding: 5px 14px; border-radius: 999px;
+  }
+  .window img.shot { display: block; width: 100%; }
+  .clip { height: 620px; overflow: hidden; }
+
+  /* ---------- annotation ---------- */
+  .note {
+    position: absolute; z-index: 5;
+    background: var(--gold); color: #14171c;
+    font-weight: 600; font-size: 19px; line-height: 1.25;
+    padding: 11px 17px; border-radius: 10px; max-width: 372px;
+    box-shadow: 0 18px 40px -12px rgba(0,0,0,0.85);
+  }
+  .note::after {
+    content: ''; position: absolute; width: 12px; height: 12px;
+    background: var(--gold); transform: rotate(45deg);
+  }
+  .note.down::after  { bottom: -6px; left: 28px; }
+  .note.up::after    { top: -6px; left: 28px; }
+  .note.left::after  { left: -6px; top: 20px; }
+  .note.right::after { right: -6px; top: 20px; }
+
+  /* ---------- title / outro ---------- */
+  .center { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; text-align: center; padding: 0 200px; }
+  .center .mark { width: 132px; height: 132px; filter: invert(1); margin-bottom: 40px; }
+  .center h1 {
+    font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 86px;
+    line-height: 1.03; letter-spacing: -0.035em; text-wrap: balance;
+  }
+  .center p { font-size: 27px; color: var(--muted); margin-top: 26px; max-width: 980px; }
+  .rule { width: 92px; height: 5px; background: var(--gold); border-radius: 3px; margin: 40px 0 0; }
+  .cta {
+    margin-top: 44px; font-family: 'IBM Plex Mono', monospace; font-size: 30px;
+    color: var(--gold); letter-spacing: 0.02em;
+  }
+  .chips { display: flex; gap: 14px; margin-top: 46px; flex-wrap: wrap; justify-content: center; }
+  .credit {
+    position: absolute; left: 0; right: 0; bottom: 116px;
+    text-align: center; font-size: 16px; line-height: 1.5; color: #6f7885;
+  }
+  .credit a { color: #6f7885; text-decoration: none; }
+  .chip {
+    border: 1px solid var(--line); border-radius: 999px; padding: 10px 20px;
+    font-size: 19px; color: var(--muted); background: #101317;
+  }
+</style>
+<body></body>
+<script>
+  const SHOTS = 'shots/'
+  const SCENES = [
+    { kind: 'title' },
+    {
+      kind: 'shot', shot: 's2-roster.png', url: 'code-classroom.com/classrooms/cop4331-fall-2026/roster',
+      kicker: 'Step one', headline: 'Start from the roster you already have',
+      sub: 'Upload the Canvas gradebook export. Nothing changes until you confirm the diff.',
+      note: { text: 'Easily upload your Canvas roster to manage your virtual classroom', x: 54, y: 31, dir: 'left' },
+    },
+    {
+      kind: 'shot', shot: 's3-roster-tbl.png', url: 'code-classroom.com/classrooms/cop4331-fall-2026/roster',
+      kicker: 'Step two', headline: 'Students claim their own name',
+      sub: 'One invite link for the class. They sign in with GitHub and link themselves — no spreadsheets of usernames.',
+      note: { text: 'NID, section and GitHub account, side by side', x: 55, y: 62, dir: 'down' },
+    },
+    {
+      kind: 'shot', shot: 's4-newassign.png', url: 'code-classroom.com/.../assignments/new',
+      kicker: 'Step three', headline: 'One template, a repository each',
+      sub: 'Individual or group. Or leave the template blank and hand out empty repositories.',
+      note: { text: 'Deadlines, autograding and feedback PRs, all optional', x: 58, y: 40, dir: 'left' },
+    },
+    {
+      kind: 'shot', shot: 's5-repos.png', url: 'code-classroom.com/.../assignments/hw1',
+      kicker: 'While you teach', headline: 'Every repository, every score, one table',
+      sub: 'Provisioning runs in the background against GitHub’s rate limits and tells you where it is.',
+      note: { text: 'Autograded on every push', x: 63, y: 26, dir: 'down' },
+    },
+    {
+      kind: 'shot', shot: 's7-grades.png', url: 'code-classroom.com/.../grades',
+      kicker: 'At the end', headline: 'Grades go back to Canvas',
+      sub: 'A CSV Canvas matches against the students it already has — blank cells stay blank, never zeros.',
+      note: { text: 'Identity columns come from your own export', x: 20, y: 33, dir: 'up' },
+    },
+    { kind: 'outro' },
+  ]
+
+  const idx = Number(new URLSearchParams(location.search).get('s') ?? 0)
+  const s = SCENES[idx]
+  const body = document.body
+
+  function chrome() {
+    return `
+      <div class="brand"><img src="../public/ucf-pegasus.png" alt=""><span>UCF Code Classroom</span></div>
+      <div class="site">code-classroom.com</div>`
+  }
+
+  if (s.kind === 'title') {
+    body.innerHTML = `<div class="stage">${chrome()}
+      <div class="center">
+        <img class="mark" src="../public/ucf-pegasus.png" alt="">
+        <h1>Coursework on GitHub,<br>managed from one place</h1>
+        <p>Turn a Canvas roster into per-student GitHub repositories, grade them with Actions,
+           and send the marks back — inside an organization you control.</p>
+        <div class="rule"></div>
+      </div></div>`
+  } else if (s.kind === 'outro') {
+    body.innerHTML = `<div class="stage">${chrome()}
+      <div class="center">
+        <img class="mark" src="../public/ucf-pegasus.png" alt="">
+        <h1>Real repositories.<br>Real Actions. Real pull requests.</h1>
+        <div class="chips">
+          <span class="chip">Canvas roster import</span>
+          <span class="chip">Individual &amp; group work</span>
+          <span class="chip">Autograding</span>
+          <span class="chip">Feedback pull requests</span>
+          <span class="chip">Deadlines &amp; extensions</span>
+          <span class="chip">Grade export</span>
+        </div>
+        <div class="cta">code-classroom.com</div>
+      </div>
+      <div class="credit">
+        Music: <em>Dopamine</em> by KV &nbsp;·&nbsp; youtube.com/c/KVmusicprod<br>
+        Music promoted by Audio Library
+      </div></div>`
+  } else {
+    const n = s.note
+    body.innerHTML = `<div class="stage">${chrome()}
+      <div class="window">
+        <div class="titlebar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="url">${s.url}</span>
+        </div>
+        <div class="clip"><img class="shot" src="${SHOTS}${s.shot}" alt=""></div>
+      </div>
+      ${n ? `<div class="note ${n.dir}" style="left:${n.x}%; top:${n.y}%">${n.text}</div>` : ''}
+      <div class="caption">
+        <div class="kicker">${s.kicker}</div>
+        <div class="headline">${s.headline}</div>
+        <div class="sub">${s.sub}</div>
+      </div></div>`
+  }
+  document.title = `scene-${idx}`
+  window.__sceneCount = SCENES.length
+</script>

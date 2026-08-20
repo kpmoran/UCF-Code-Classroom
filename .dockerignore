@@ -32,6 +32,11 @@ src/**/*.integration.test.ts
 !.env.example
 *.pem
 
+# The promo video's sources: the finished file lives in public/ and ships from
+# there. This folder is ~9MB of screenshots, 4K scene renders and the music track,
+# none of which `next build` reads.
+promo
+
 # Repository furniture.
 .git
 .github

@@ -48,6 +48,17 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Skip Next internals and static assets.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)'],
+  /*
+   * Skip Next internals and static assets.
+   *
+   * The extension list has to cover everything served out of public/, not just
+   * images. It listed image types only, so the promo video came back as a 307 to
+   * /signin — an asset on the *public* front page, gated behind authentication, and
+   * invisible to precisely the visitors it exists for. The poster frame beside it
+   * loaded fine, which is what made it look like a working player until you pressed
+   * play.
+   */
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|mp4|webm|mov|woff2?)$).*)',
+  ],
 }
