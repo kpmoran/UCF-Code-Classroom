@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { forbidden, notFound } from 'next/navigation'
 
 import { AssignmentStaffPanel } from '@/components/assignment-staff-panel'
 import { AssignmentStudentPanel } from '@/components/assignment-student-panel'
@@ -22,7 +22,16 @@ export default async function AssignmentPage(
   props: PageProps<'/classrooms/[slug]/assignments/[id]'>,
 ) {
   const { slug, id } = await props.params
-  const { classroom, role, user } = await requireClassroomRole(slug)
+  const { classroom, role, user, viaSiteAdmin } = await requireClassroomRole(slug)
+
+  /*
+   * This page is one row per student — repository, score, deadline state — or, for a
+   * student, their own. A site admin who is not in the classroom has no business in
+   * either view, so the break-glass role does not open it. Joining the classroom
+   * from /admin/classrooms is the way in, and it is audited.
+   */
+  if (viaSiteAdmin) forbidden()
+
   const isStaff = roleSatisfies(role, 'TA')
 
   const assignment = await db.assignment.findFirst({

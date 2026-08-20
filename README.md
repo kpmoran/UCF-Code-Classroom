@@ -340,6 +340,40 @@ strokes past one pixel and turns it into a smudge. `scripts/build-icons.mjs` ren
 size from the 192px original rather than downscaling one large composite, so the artwork
 is resampled once. Look at a 16px render before changing either number.
 
+### What a site admin can see
+
+Site admins have always been able to reach any classroom by URL — `requireClassroomRole`
+grants them `INSTRUCTOR` when they are not a member, as a break-glass path for support and
+for recovering a classroom whose instructor left. Nothing listed those classrooms though,
+so operating the server meant guessing a slug from a course code and term, or reading the
+database. `/admin/classrooms` lists them.
+
+The listing is metadata only: name, term, organization, who teaches it, roster and
+assignment counts, archived state, and a warning where a classroom has **no instructor
+left** — which is the state it is most useful for finding.
+
+Reaching a classroom's configuration and reading its students are now separate questions,
+because running an instance is a reason for the first and not the second:
+
+| | Non-member site admin |
+|---|---|
+| `/admin/classrooms`, classroom overview, settings | allowed |
+| roster, grades, per-assignment table, activity log | **403** |
+
+`requireEnrolledStaff` and `requireEnrolledInstructor` are the guards; they take the role
+requirement and the membership requirement as independent conditions, which matters
+because the activity log needs both — it names students alongside actions taken on them,
+so it is not for TAs either.
+
+The way in is **Join** on the listing, which adds the admin as an instructor and writes
+`classroom.admin_joined` to that classroom's activity log. So the capability is unchanged
+in substance — an admin can still get to anything — but it now costs one deliberate click
+and leaves a record naming who did it, instead of being ambient and invisible.
+
+Faculty see nothing new: `/admin/classrooms` is `requireSiteAdmin`, and another
+instructor's classroom still returns 404 to them rather than 403, so slugs stay
+unenumerable.
+
 ### The organization-owner credential follows the membership
 
 `Classroom.ownerTokenUserId` names whose stored GitHub token performs the privileged

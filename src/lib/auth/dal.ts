@@ -93,6 +93,11 @@ export type ClassroomContext = {
     ownerTokenUserId: string | null
     archivedAt: Date | null
   }
+  /**
+   * True when the role came from the site-admin bypass rather than membership.
+   * Callers showing student data must refuse in that case.
+   */
+  viaSiteAdmin: boolean
 }
 
 /**
@@ -136,9 +141,18 @@ export const requireClassroomRole = cache(
 
     const membership = classroom.members[0]
 
-    // Site admins can administer any classroom; this is the break-glass path
-    // for support and for recovering a classroom whose instructor left.
-    const effectiveRole = membership?.role ?? (user.isSiteAdmin ? ClassroomRole.INSTRUCTOR : null)
+    /*
+     * Site admins can administer any classroom without joining it: the break-glass
+     * path for support and for recovering a classroom whose instructor left.
+     *
+     * `viaSiteAdmin` records that the role came from that bypass rather than from
+     * membership, because the two should not grant the same things. Operating an
+     * instance is a reason to reach a classroom's configuration; it is not a reason
+     * to read a colleague's students' names, addresses and grades. Pages that show
+     * student data use `requireEnrolledStaff` below, which refuses the bypass.
+     */
+    const viaSiteAdmin = !membership && user.isSiteAdmin
+    const effectiveRole = membership?.role ?? (viaSiteAdmin ? ClassroomRole.INSTRUCTOR : null)
 
     // Non-members get 404, not 403: otherwise the response code confirms that
     // a given classroom slug exists, across every course on the instance.
@@ -152,7 +166,7 @@ export const requireClassroomRole = cache(
     // Drop the membership rows; callers get the resolved `role` instead.
     const { members, ...rest } = classroom
     void members
-    return { user, role: effectiveRole, classroom: rest }
+    return { user, role: effectiveRole, classroom: rest, viaSiteAdmin }
   },
 )
 
@@ -182,6 +196,36 @@ export const requireInstructor = (classroomIdOrSlug: string) =>
 
 export const requireStaff = (classroomIdOrSlug: string) =>
   requireClassroomRole(classroomIdOrSlug, ClassroomRole.TA)
+
+/**
+ * Staff of this classroom *by membership* — the site-admin bypass is not enough.
+ *
+ * For anything listing students: the roster, grades, the per-assignment table, the
+ * activity log. Administering an instance does not come with a standing right to
+ * read every course's student records, and a site admin who genuinely needs in can
+ * add themselves as an instructor from /admin/classrooms, which is one click and
+ * leaves an audit entry naming them.
+ *
+ * `forbidden()`, not `notFound()`: they can already see the classroom exists from
+ * the admin listing, so pretending otherwise would only be confusing.
+ */
+const requireEnrolled = async (classroomIdOrSlug: string, required: ClassroomRole) => {
+  const context = await requireClassroomRole(classroomIdOrSlug, required)
+  if (context.viaSiteAdmin) forbidden()
+  return context
+}
+
+export const requireEnrolledStaff = (classroomIdOrSlug: string) =>
+  requireEnrolled(classroomIdOrSlug, ClassroomRole.TA)
+
+/**
+ * As above, but instructor-only. The membership requirement and the role
+ * requirement are independent, and the activity log needs both: it names students
+ * alongside the actions taken on them, so it is not for TAs, and it is not for an
+ * admin who has not joined.
+ */
+export const requireEnrolledInstructor = (classroomIdOrSlug: string) =>
+  requireEnrolled(classroomIdOrSlug, ClassroomRole.INSTRUCTOR)
 
 /** Classrooms the current user belongs to, for the dashboard. */
 export const listMyClassrooms = cache(async () => {

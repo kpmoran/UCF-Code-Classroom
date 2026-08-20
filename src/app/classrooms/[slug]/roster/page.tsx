@@ -4,13 +4,13 @@ import { RosterImportPanel } from '@/components/roster-import-panel'
 import { RosterTable } from '@/components/roster-table'
 import { SiteHeader } from '@/components/site-header'
 import { ButtonLink } from '@/components/ui/button'
-import { requireStaff } from '@/lib/auth/dal'
+import { requireEnrolledStaff } from '@/lib/auth/dal'
 import { db } from '@/lib/db'
 import { env } from '@/lib/env'
 
 export default async function RosterPage(props: PageProps<'/classrooms/[slug]/roster'>) {
   const { slug } = await props.params
-  const { classroom, role } = await requireStaff(slug)
+  const { classroom, role } = await requireEnrolledStaff(slug)
 
   const [entries, inviteLink] = await Promise.all([
     db.rosterEntry.findMany({

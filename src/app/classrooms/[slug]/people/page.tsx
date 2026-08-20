@@ -3,12 +3,12 @@ import Link from 'next/link'
 import { PeopleTable } from '@/components/people-table'
 import { SiteHeader } from '@/components/site-header'
 import { ButtonLink } from '@/components/ui/button'
-import { requireStaff } from '@/lib/auth/dal'
+import { requireEnrolledStaff } from '@/lib/auth/dal'
 import { db } from '@/lib/db'
 
 export default async function PeoplePage(props: PageProps<'/classrooms/[slug]/people'>) {
   const { slug } = await props.params
-  const { classroom, role, user } = await requireStaff(slug)
+  const { classroom, role, user } = await requireEnrolledStaff(slug)
 
   const members = await db.classroomMember.findMany({
     where: { classroomId: classroom.id },

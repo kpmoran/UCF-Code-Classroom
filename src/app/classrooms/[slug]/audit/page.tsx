@@ -4,7 +4,7 @@ import { SiteHeader } from '@/components/site-header'
 import { Badge } from '@/components/ui/badge'
 import { ButtonLink } from '@/components/ui/button'
 import { EmptyState, Table, TableWrap, Td, Th } from '@/components/ui/table'
-import { requireInstructor } from '@/lib/auth/dal'
+import { requireEnrolledInstructor } from '@/lib/auth/dal'
 import { describeAuditAction, isDestructiveAction } from '@/lib/audit/describe'
 import { db } from '@/lib/db'
 
@@ -21,7 +21,7 @@ const PAGE_SIZE = 100
 export default async function AuditPage(props: PageProps<'/classrooms/[slug]/audit'>) {
   const { slug } = await props.params
   const search = await props.searchParams
-  const { classroom } = await requireInstructor(slug)
+  const { classroom } = await requireEnrolledInstructor(slug)
 
   const page = Math.max(1, Number(search.page ?? '1') || 1)
   const skip = (page - 1) * PAGE_SIZE

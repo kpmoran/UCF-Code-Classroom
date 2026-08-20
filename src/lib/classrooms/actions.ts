@@ -4,7 +4,7 @@ import { ClassroomRole } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
-import { requireFaculty, requireInstructor } from '@/lib/auth/dal'
+import { requireFaculty, requireInstructor, requireSiteAdmin } from '@/lib/auth/dal'
 import { generateInviteToken } from '@/lib/crypto'
 import { db } from '@/lib/db'
 import { GitHubDomainError } from '@/lib/github/errors'
@@ -170,6 +170,67 @@ export async function createClassroom(formData: FormData): Promise<ActionResult<
       ? `/classrooms/${classroom.slug}?notOwner=1`
       : `/classrooms/${classroom.slug}`,
   )
+}
+
+/**
+ * Add the acting site admin to a classroom as an instructor.
+ *
+ * The deliberate counterpart to student data being closed to the site-admin bypass.
+ * Operating the instance is a reason to see *that* a classroom exists and to reach
+ * its configuration; it is not a standing right to read another course's rosters and
+ * grades. When there is a real reason — an instructor left, a support request, a
+ * complaint to investigate — this is the way in, and it writes an audit entry naming
+ * who did it, rather than leaving no trace at all.
+ *
+ * Idempotent: joining a classroom already joined changes nothing and is not audited
+ * a second time, so a double-click does not litter the log.
+ */
+export async function joinClassroomAsSiteAdmin(
+  formData: FormData,
+): Promise<ActionResult<never>> {
+  const admin = await requireSiteAdmin()
+  const classroomId = String(formData.get('classroomId') ?? '')
+
+  const classroom = await db.classroom.findUnique({
+    where: { id: classroomId },
+    select: { id: true, slug: true },
+  })
+  if (!classroom) return { ok: false, error: 'That classroom no longer exists.' }
+
+  const existing = await db.classroomMember.findUnique({
+    where: { classroomId_userId: { classroomId: classroom.id, userId: admin.id } },
+    select: { id: true, role: true },
+  })
+
+  if (existing?.role === ClassroomRole.INSTRUCTOR) {
+    return { ok: true, data: undefined as never }
+  }
+
+  if (existing) {
+    await db.classroomMember.update({
+      where: { id: existing.id },
+      data: { role: ClassroomRole.INSTRUCTOR },
+    })
+  } else {
+    await db.classroomMember.create({
+      data: { classroomId: classroom.id, userId: admin.id, role: ClassroomRole.INSTRUCTOR },
+    })
+  }
+
+  await db.auditLog.create({
+    data: {
+      classroomId: classroom.id,
+      actorUserId: admin.id,
+      action: 'classroom.admin_joined',
+      targetType: 'classroom',
+      targetId: classroom.id,
+      detail: { githubLogin: admin.githubLogin, previousRole: existing?.role ?? null },
+    },
+  })
+
+  revalidatePath('/admin/classrooms')
+  revalidatePath(`/classrooms/${classroom.slug}`)
+  return { ok: true, data: undefined as never }
 }
 
 export async function updateClassroom(formData: FormData): Promise<ActionResult<never>> {

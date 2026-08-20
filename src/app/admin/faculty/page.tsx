@@ -77,7 +77,15 @@ export default async function AdminFacultyPage() {
           </Link>
           <h1 className="text-2xl font-semibold mt-2">Faculty access</h1>
           <p className="text-sm text-muted mt-1">
-            Who may create classrooms, and the invitations outstanding.
+            Who may create classrooms, and the invitations outstanding. Note that
+            revoking access here stops someone creating <em>new</em> classrooms; it does
+            not remove them from classrooms they already run. For that, open the
+            classroom and change their role there.
+          </p>
+          <p className="text-sm mt-2">
+            <Link href="/admin/classrooms" className="underline">
+              All classrooms on this server
+            </Link>
           </p>
         </div>
 

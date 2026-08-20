@@ -3,13 +3,13 @@ import Link from 'next/link'
 import { GradebookTable } from '@/components/gradebook-table'
 import { SiteHeader } from '@/components/site-header'
 import { ButtonLink } from '@/components/ui/button'
-import { requireStaff } from '@/lib/auth/dal'
+import { requireEnrolledStaff } from '@/lib/auth/dal'
 import { columnTitle, resolveScore } from '@/lib/canvas/exportGrades'
 import { db } from '@/lib/db'
 
 export default async function GradesPage(props: PageProps<'/classrooms/[slug]/grades'>) {
   const { slug } = await props.params
-  const { classroom, role } = await requireStaff(slug)
+  const { classroom, role } = await requireEnrolledStaff(slug)
 
   const [assignments, roster] = await Promise.all([
     db.assignment.findMany({

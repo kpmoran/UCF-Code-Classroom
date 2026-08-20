@@ -34,9 +34,14 @@ export default async function HomePage() {
           </div>
           <div className="flex items-center gap-2">
             {user.isSiteAdmin ? (
-              <ButtonLink href="/admin/faculty" variant="outline">
-                Faculty access
-              </ButtonLink>
+              <>
+                <ButtonLink href="/admin/classrooms" variant="outline">
+                  All classrooms
+                </ButtonLink>
+                <ButtonLink href="/admin/faculty" variant="outline">
+                  Faculty access
+                </ButtonLink>
+              </>
             ) : null}
             {user.isFaculty ? (
               <ButtonLink href="/classrooms/new" variant="accent">New classroom</ButtonLink>
