@@ -271,3 +271,157 @@ test('a student cannot reach the people or audit pages', async ({ page, context 
   await page.goto(`/classrooms/${SLUG}`)
   await expect(appAlert(page)).toHaveCount(0)
 })
+
+/*
+ * The organization-owner credential must not outlive the membership it belongs to.
+ *
+ * `Classroom.ownerTokenUserId` names whose stored GitHub token performs privileged
+ * organization work. Nothing used to clear it when that person was removed, so a
+ * classroom kept using the token of someone who had just been taken off it — and
+ * when they eventually disconnected GitHub, group assignments began failing with a
+ * 401 that named no cause.
+ */
+
+/** An instructor who has completed the owner connection. */
+async function addInstructorWithOwnerToken(login: string) {
+  const user = await seedSession(login)
+  await db.classroomMember.upsert({
+    where: { classroomId_userId: { classroomId, userId: user.id } },
+    update: { role: 'INSTRUCTOR' },
+    create: { classroomId, userId: user.id, role: 'INSTRUCTOR' },
+  })
+  await db.account.deleteMany({ where: { userId: user.id, provider: 'github-owner' } })
+  await db.account.create({
+    data: {
+      userId: user.id,
+      type: 'oauth',
+      provider: 'github-owner',
+      providerAccountId: `owner-${login}`,
+      // Only its presence matters here; selection is what is under test, not decryption.
+      access_token: 'v1.placeholder',
+      isOwnerToken: true,
+      tokenValidatedAt: new Date(),
+    },
+  })
+  return user
+}
+
+async function addPlainInstructor(login: string) {
+  const user = await seedSession(login)
+  await db.classroomMember.upsert({
+    where: { classroomId_userId: { classroomId, userId: user.id } },
+    update: { role: 'INSTRUCTOR' },
+    create: { classroomId, userId: user.id, role: 'INSTRUCTOR' },
+  })
+  await db.account.deleteMany({ where: { userId: user.id, provider: 'github-owner' } })
+  return user
+}
+
+/** Point the classroom's owner credential at someone, as classroom creation does. */
+async function giveOwnerTokenTo(userId: string) {
+  await db.classroom.update({ where: { id: classroomId }, data: { ownerTokenUserId: userId } })
+}
+
+test('removing the owner-token holder hands the credential to another instructor', async ({
+  page,
+  context,
+}) => {
+  const admin = await seedClassroom()
+  const departing = await addPlainInstructor('e2e-owner-dep')
+  const successor = await addInstructorWithOwnerToken('e2e-owner-succ')
+  await giveOwnerTokenTo(departing.id)
+
+  await applySession(context, admin)
+  await page.goto(`/classrooms/${SLUG}/people`)
+
+  await page
+    .getByRole('row', { name: /e2e-owner-dep/ })
+    .getByRole('button', { name: 'Remove' })
+    .click()
+
+  // KEEP is preselected, so the confirm button is actionable immediately.
+  const dialogP = page.getByRole('dialog')
+  await expect(dialogP).toBeVisible()
+  await dialogP.getByRole('button', { name: 'Remove' }).click()
+  await expect(page.getByRole('row', { name: /e2e-owner-dep/ })).toHaveCount(0)
+
+  // Handed on rather than cleared: clearing is only recoverable by a human
+  // noticing a warning, so it is the last resort and not the default.
+  const after = await db.classroom.findUniqueOrThrow({
+    where: { id: classroomId },
+    select: { ownerTokenUserId: true },
+  })
+  expect(after.ownerTokenUserId).toBe(successor.id)
+
+  const audit = await db.auditLog.findFirst({
+    where: { classroomId, action: 'classroom.owner_token_reassigned' },
+  })
+  expect(audit).not.toBeNull()
+})
+
+test('with nobody to hand it to, the credential is cleared and settings says so', async ({
+  page,
+  context,
+}) => {
+  const admin = await seedClassroom()
+  const departing = await addPlainInstructor('e2e-owner-dep2')
+  await giveOwnerTokenTo(departing.id)
+
+  await applySession(context, admin)
+  await page.goto(`/classrooms/${SLUG}/people`)
+
+  await page
+    .getByRole('row', { name: /e2e-owner-dep2/ })
+    .getByRole('button', { name: 'Remove' })
+    .click()
+
+  // KEEP is preselected, so the confirm button is actionable immediately.
+  const dialog2 = page.getByRole('dialog')
+  await expect(dialog2).toBeVisible()
+  await dialog2.getByRole('button', { name: 'Remove' }).click()
+  await expect(page.getByRole('row', { name: /e2e-owner-dep2/ })).toHaveCount(0)
+
+  const after = await db.classroom.findUniqueOrThrow({
+    where: { id: classroomId },
+    select: { ownerTokenUserId: true },
+  })
+  expect(after.ownerTokenUserId).toBeNull()
+
+  /*
+   * And the way back exists. Several error messages have always told people to
+   * "use Connect GitHub as organization owner" in settings, and that control did
+   * not exist — so clearing the credential would have been unrecoverable, which is
+   * a worse bug than the one being fixed.
+   */
+  await page.goto(`/classrooms/${SLUG}/settings`)
+  await expect(page.getByRole('heading', { name: 'Organization owner' })).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Connect GitHub as organization owner' }),
+  ).toBeVisible()
+  await expect(page.getByText(/No organization owner is connected/)).toBeVisible()
+})
+
+test('demoting the owner-token holder out of instructor also releases it', async ({
+  page,
+  context,
+}) => {
+  // Same invariant from the other direction: the credential belongs to an
+  // instructor of the classroom, so losing that role releases it too.
+  const admin = await seedClassroom()
+  const demoted = await addPlainInstructor('e2e-owner-dem')
+  await giveOwnerTokenTo(demoted.id)
+
+  await applySession(context, admin)
+  await page.goto(`/classrooms/${SLUG}/people`)
+  await page.getByLabel(`Role for e2e-owner-dem`).selectOption('TA')
+
+  await expect
+    .poll(async () => {
+      const row = await db.classroom.findUniqueOrThrow({
+        where: { id: classroomId },
+        select: { ownerTokenUserId: true },
+      })
+      return row.ownerTokenUserId
+    })
+    .toBeNull()
+})

@@ -4,6 +4,7 @@ import { ClassroomRole } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 
 import { requireInstructor } from '@/lib/auth/dal'
+import { OWNER_PROVIDER_ID } from '@/lib/auth/providers'
 import { db } from '@/lib/db'
 import { enqueue, QUEUES } from '@/jobs/queue'
 
@@ -21,6 +22,74 @@ export type MemberActionResult<T = void> =
  *  - An instructor cannot demote or remove themselves in a way that locks them
  *    out, which is the same rule stated from the acting user's side.
  */
+
+/**
+ * Keep the classroom's organization-owner credential attached to someone who is
+ * still an instructor of it.
+ *
+ * `Classroom.ownerTokenUserId` names the person whose stored GitHub token performs
+ * privileged organization work — creating teams, adding members who are not yet in
+ * the organization. Nothing was clearing it when that person left, so a classroom
+ * went on using the token of someone who had just been removed. Two ways that
+ * bites: the credential belongs to somebody with no remaining connection to the
+ * course, and the moment they disconnect GitHub, group assignments start failing
+ * with a 401 that names no cause.
+ *
+ * Handing off beats clearing where possible, because clearing is only recoverable
+ * by a human noticing a warning and reconnecting. So: prefer another instructor who
+ * already has a usable owner token, and clear only when there is nobody.
+ */
+async function handOffOwnerToken(
+  classroomId: string,
+  departingUserId: string,
+  actorUserId: string,
+): Promise<'kept' | 'reassigned' | 'cleared'> {
+  const classroom = await db.classroom.findUnique({
+    where: { id: classroomId },
+    select: { ownerTokenUserId: true },
+  })
+  if (classroom?.ownerTokenUserId !== departingUserId) return 'kept'
+
+  // Another instructor who has actually completed the owner connection. Checked
+  // against the account rows rather than assumed, so we never hand the role to
+  // someone whose token does not exist — that would look fixed and not be.
+  const successor = await db.classroomMember.findFirst({
+    where: {
+      classroomId,
+      role: ClassroomRole.INSTRUCTOR,
+      userId: { not: departingUserId },
+      user: {
+        accounts: {
+          some: {
+            provider: OWNER_PROVIDER_ID,
+            isOwnerToken: true,
+            access_token: { not: null },
+          },
+        },
+      },
+    },
+    orderBy: { joinedAt: 'asc' },
+    select: { userId: true },
+  })
+
+  await db.classroom.update({
+    where: { id: classroomId },
+    data: { ownerTokenUserId: successor?.userId ?? null },
+  })
+
+  await db.auditLog.create({
+    data: {
+      classroomId,
+      actorUserId,
+      action: successor ? 'classroom.owner_token_reassigned' : 'classroom.owner_token_cleared',
+      targetType: 'classroom',
+      targetId: classroomId,
+      detail: { from: departingUserId, to: successor?.userId ?? null },
+    },
+  })
+
+  return successor ? 'reassigned' : 'cleared'
+}
 
 export async function setMemberRole(formData: FormData): Promise<MemberActionResult> {
   const classroomId = String(formData.get('classroomId') ?? '')
@@ -58,6 +127,18 @@ export async function setMemberRole(formData: FormData): Promise<MemberActionRes
 
   await db.classroomMember.update({ where: { id: membership.id }, data: { role } })
 
+  /*
+   * Demotion out of INSTRUCTOR is treated the same as leaving, as far as the
+   * organization-owner credential goes. The invariant worth holding is simply
+   * "the owner token belongs to an instructor of this classroom" — it is easy to
+   * state, easy to test, and it keeps a privileged token from sitting with someone
+   * who has been moved to TA or student.
+   */
+  const ownerToken =
+    membership.role === ClassroomRole.INSTRUCTOR && role !== ClassroomRole.INSTRUCTOR
+      ? await handOffOwnerToken(classroomId, targetUserId, user.id)
+      : 'kept'
+
   await db.auditLog.create({
     data: {
       classroomId,
@@ -70,11 +151,13 @@ export async function setMemberRole(formData: FormData): Promise<MemberActionRes
         to: role,
         who: membership.user.githubLogin ?? membership.user.name,
         selfChange: targetUserId === user.id,
+        ownerToken,
       },
     },
   })
 
   revalidatePath(`/classrooms/${classroom.slug}/people`)
+  revalidatePath(`/classrooms/${classroom.slug}/settings`)
   return { ok: true, data: undefined }
 }
 
@@ -88,7 +171,7 @@ export async function setMemberRole(formData: FormData): Promise<MemberActionRes
  */
 export async function removeClassroomMember(
   formData: FormData,
-): Promise<MemberActionResult<{ queuedRevoke: boolean }>> {
+): Promise<MemberActionResult<{ queuedRevoke: boolean; ownerTokenCleared: boolean }>> {
   const classroomId = String(formData.get('classroomId') ?? '')
   const targetUserId = String(formData.get('userId') ?? '')
   const repoActionInput = String(formData.get('repoAction') ?? 'KEEP')
@@ -144,6 +227,10 @@ export async function removeClassroomMember(
 
   await db.classroomMember.delete({ where: { id: membership.id } })
 
+  // Before anything else reads the classroom: they may have been holding the
+  // organization-owner credential, and it must not outlive their membership.
+  const ownerToken = await handOffOwnerToken(classroomId, targetUserId, user.id)
+
   await db.auditLog.create({
     data: {
       classroomId,
@@ -151,7 +238,7 @@ export async function removeClassroomMember(
       action: 'member.remove',
       targetType: 'user',
       targetId: targetUserId,
-      detail: { who: label, role: membership.role, repoAction },
+      detail: { who: label, role: membership.role, repoAction, ownerToken },
     },
   })
 
@@ -164,7 +251,11 @@ export async function removeClassroomMember(
 
   revalidatePath(`/classrooms/${classroom.slug}/people`)
   revalidatePath(`/classrooms/${classroom.slug}/roster`)
-  return { ok: true, data: { queuedRevoke: true } }
+  revalidatePath(`/classrooms/${classroom.slug}/settings`)
+  return {
+    ok: true,
+    data: { queuedRevoke: true, ownerTokenCleared: ownerToken === 'cleared' },
+  }
 }
 
 /**

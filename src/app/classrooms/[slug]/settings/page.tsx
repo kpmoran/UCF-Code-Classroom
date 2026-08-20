@@ -7,6 +7,7 @@ import {
   OrgOwnershipPanel,
   OrgOwnershipSkeleton,
 } from '@/components/classroom-org-panel'
+import { ClassroomOwnerPanel } from '@/components/classroom-owner-panel'
 import { ClassroomSettingsForm } from '@/components/classroom-settings-form'
 import { InviteLinkPanel } from '@/components/invite-link-panel'
 import { SiteHeader } from '@/components/site-header'
@@ -81,6 +82,12 @@ export default async function ClassroomSettingsPage(
             </Suspense>
           </CardContent>
         </Card>
+
+        <ClassroomOwnerPanel
+          classroomId={full.id}
+          slug={full.slug}
+          orgLogin={full.githubOrgLogin}
+        />
 
         <ClassroomSettingsForm
           classroom={{

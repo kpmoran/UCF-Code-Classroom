@@ -340,6 +340,39 @@ strokes past one pixel and turns it into a smudge. `scripts/build-icons.mjs` ren
 size from the 192px original rather than downscaling one large composite, so the artwork
 is resampled once. Look at a 16px render before changing either number.
 
+### The organization-owner credential follows the membership
+
+`Classroom.ownerTokenUserId` names whose stored GitHub token performs the privileged
+organization work — creating teams, and adding people who are not organization members
+yet. Removing an instructor used to leave it pointing at them, so a classroom went on
+using the token of somebody who had just been taken off it. The credential belonged to
+someone with no remaining connection to the course, and the day they disconnected GitHub,
+group assignments began failing with a 401 that named no cause.
+
+Losing `INSTRUCTOR` on a classroom — by removal or by demotion — now releases it. The
+invariant is simply *the owner token belongs to an instructor of this classroom*, which is
+easy to state and easy to test. It is handed to another instructor who has already
+completed the owner connection where one exists, and cleared only when there is nobody,
+because clearing is recoverable only by a human noticing a warning. Both outcomes are
+audited as `classroom.owner_token_reassigned` or `classroom.owner_token_cleared`.
+
+Note what revoking **faculty** status does not do. It sets `isFaculty` false, which stops
+someone creating *new* classrooms — `requireFaculty` guards `/classrooms/new` and
+`createClassroom`. It does not touch the classrooms they already have, because
+`requireClassroomRole` goes by classroom membership and never consults `isFaculty`. To
+remove someone from a classroom they already run, demote or remove them there; a site
+admin can do that on any classroom without being a member.
+
+#### Connecting as organization owner
+
+Settings has a **Connect GitHub as organization owner** control. It is worth knowing that
+several error messages pointed at this control long before it existed: the `github-owner`
+provider was registered and the token plumbing was complete, but nothing ever triggered
+the sign-in, so the credential could only be established as a side effect of creating the
+classroom and the advice named a button that was not there. Handing the credential on made
+that gap load-bearing — clearing something unrecoverable would have been worse than the
+bug being fixed — so the control now exists.
+
 ### Signing in is open, deliberately
 
 Anyone with a GitHub account can sign in. That is a decision, not an oversight, and it
