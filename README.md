@@ -19,7 +19,7 @@ plays on the [front page](https://code-classroom.com); the file itself is
 [`public/promo.mp4`](public/promo.mp4), and `promo/` holds the sources and the script
 that rebuilds it.
 
-## How it fits together
+## Overview of the Code Classroom Architecture
 
 The whole thing is one Docker Compose stack — a Next.js container, Postgres, Caddy for
 TLS — plus a GitHub organization you own. There is no separate worker service and no
