@@ -8,6 +8,7 @@ import { GitHubDomainError } from '@/lib/github/errors'
 import { toGitHubPermission } from '@/lib/github/operations/collaborators'
 import { ensureFeedbackBranch } from '@/lib/github/operations/pulls'
 import {
+  createEmptyRepo,
   generateRepoFromTemplate,
   listOrgRepoNames,
 } from '@/lib/github/operations/repos'
@@ -179,15 +180,25 @@ export async function provisionTeamRepo(job: ProvisionTeamRepoJob): Promise<void
       })
     }
 
-    const { repo: created } = await generateRepoFromTemplate({
-      installationId,
-      templateOwner: assignment.templateOwner,
-      templateRepo: assignment.templateRepo,
-      owner: org,
-      name: repoName,
-      private: assignment.visibility === 'PRIVATE',
-      description: `${team.name} — ${assignment.title}`,
-    })
+    // From a template when there is one, otherwise empty — see createEmptyRepo.
+    const { repo: created } =
+      assignment.templateOwner && assignment.templateRepo
+        ? await generateRepoFromTemplate({
+            installationId,
+            templateOwner: assignment.templateOwner,
+            templateRepo: assignment.templateRepo,
+            owner: org,
+            name: repoName,
+            private: assignment.visibility === 'PRIVATE',
+            description: `${team.name} — ${assignment.title}`,
+          })
+        : await createEmptyRepo({
+            installationId,
+            owner: org,
+            name: repoName,
+            private: assignment.visibility === 'PRIVATE',
+            description: `${team.name} — ${assignment.title}`,
+          })
 
     await db.assignmentRepo.update({
       where: { id: repo.id },

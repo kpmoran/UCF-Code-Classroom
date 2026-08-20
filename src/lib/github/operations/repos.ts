@@ -191,6 +191,59 @@ export async function waitForRepoContent(
   return { ready: false, waitedMs: Date.now() - started }
 }
 
+/**
+ * Create an empty repository, for an assignment that starts from nothing.
+ *
+ * `auto_init` is deliberately false, so the repository really is empty: no commit,
+ * no default branch, no README nobody asked for. GitHub shows the student its "quick
+ * setup" instructions, which is the correct thing for an assignment whose first task
+ * is to create the project.
+ *
+ * The rest of the pipeline already tolerates this, which is worth knowing before
+ * changing any of it:
+ *
+ *   * the feedback pull request skips with "the repository has no commits yet" and
+ *     opens by itself once the student pushes;
+ *   * the deadline snapshot records an empty SHA rather than failing;
+ *   * writing the autograding workflow uses the contents API, which creates the
+ *     first commit and the default branch along with the file.
+ *
+ * Idempotent by pre-check, like `generateRepoFromTemplate`, and for the same reason:
+ * a worker that dies between creating the repository and recording it must converge
+ * on retry rather than trip over its own leftovers.
+ */
+export async function createEmptyRepo(input: {
+  installationId: bigint
+  owner: string
+  name: string
+  private: boolean
+  description?: string
+}): Promise<{ repo: RepoSummary; created: boolean }> {
+  const { installationId, owner, name } = input
+
+  const existing = await getRepo(installationId, owner, name)
+  // No waitForRepoContent here: there is no asynchronous copy to wait for, and
+  // waiting for content that will never arrive would burn the whole timeout.
+  if (existing) return { repo: existing, created: false }
+
+  const data = await githubMutate(
+    `create empty repo ${owner}/${name}`,
+    installationId,
+    (octokit) =>
+      octokit.rest.repos
+        .createInOrg({
+          org: owner,
+          name,
+          private: input.private,
+          description: input.description,
+          auto_init: false,
+        })
+        .then((r) => r.data),
+  )
+
+  return { repo: toSummary(data), created: true }
+}
+
 export type GenerateRepoInput = {
   installationId: bigint
   templateOwner: string
@@ -318,7 +371,10 @@ export async function getRepoHead(
     }
   } catch (error) {
     // An empty repository has no branch yet; that is a normal state, not an error.
-    if (error instanceof GitHubDomainError && error.status === 404) return null
+    // 409 as well as 404: git endpoints report "Git Repository is empty" with 409.
+    if (error instanceof GitHubDomainError && (error.status === 404 || error.status === 409)) {
+      return null
+    }
     throw toDomainError(error, `get head of repo ${owner}/${repo}`)
   }
 }

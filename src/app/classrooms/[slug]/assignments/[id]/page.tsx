@@ -79,14 +79,20 @@ export default async function AssignmentPage(
               <p className="text-sm text-muted mt-1">
                 {assignment.type === 'GROUP' ? 'Group' : 'Individual'} ·{' '}
                 {deadlineLabel ? `due ${deadlineLabel}` : 'no deadline'} ·{' '}
-                <a
-                  href={`https://github.com/${assignment.templateOwner}/${assignment.templateRepo}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-mono text-xs hover:underline"
-                >
-                  {assignment.templateOwner}/{assignment.templateRepo}
-                </a>
+                {assignment.templateOwner && assignment.templateRepo ? (
+                  <a
+                    href={`https://github.com/${assignment.templateOwner}/${assignment.templateRepo}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-mono text-xs hover:underline"
+                  >
+                    {assignment.templateOwner}/{assignment.templateRepo}
+                  </a>
+                ) : (
+                  // Stated rather than left blank: "no template" is a setting someone
+                  // chose, and a missing link would read as a bug.
+                  <span>no template — empty repositories</span>
+                )}
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">

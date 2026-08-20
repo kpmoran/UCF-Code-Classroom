@@ -125,11 +125,11 @@ export function NewAssignmentForm({
 
       <Card>
         <CardHeader>
-          <CardTitle>Template repository</CardTitle>
+          <CardTitle>Starting point</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label htmlFor="template">Template</Label>
+            <Label htmlFor="template">Template (optional)</Label>
             <TemplateCombobox
               id="template"
               name="template"

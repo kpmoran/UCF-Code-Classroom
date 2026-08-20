@@ -8,6 +8,7 @@ import { GitHubDomainError } from '@/lib/github/errors'
 import { addCollaborator, toGitHubPermission } from '@/lib/github/operations/collaborators'
 import { ensureFeedbackBranch } from '@/lib/github/operations/pulls'
 import {
+  createEmptyRepo,
   generateRepoFromTemplate,
   listOrgRepoNames,
 } from '@/lib/github/operations/repos'
@@ -115,17 +116,33 @@ export async function provisionIndividualRepo(
       })
     }
 
-    // 2. Generate from the template. Waits for GitHub's asynchronous copy, so
-    //    the following steps can rely on the contents existing.
-    const { repo: created } = await generateRepoFromTemplate({
-      installationId,
-      templateOwner: assignment.templateOwner,
-      templateRepo: assignment.templateRepo,
-      owner: org,
-      name: repoName,
-      private: assignment.visibility === 'PRIVATE',
-      description: `Assignment repository for ${user.githubLogin}`,
-    })
+    /*
+     * 2. Create the repository. From a template when the assignment has one —
+     *    which waits for GitHub's asynchronous copy so later steps can rely on
+     *    the contents existing — or empty when it does not.
+     *
+     *    An assignment without a template is not a degraded case: "build this from
+     *    scratch" is a normal thing to set, and the empty repository is the
+     *    starting state. Everything downstream already copes; see createEmptyRepo.
+     */
+    const { repo: created } =
+      assignment.templateOwner && assignment.templateRepo
+        ? await generateRepoFromTemplate({
+            installationId,
+            templateOwner: assignment.templateOwner,
+            templateRepo: assignment.templateRepo,
+            owner: org,
+            name: repoName,
+            private: assignment.visibility === 'PRIVATE',
+            description: `Assignment repository for ${user.githubLogin}`,
+          })
+        : await createEmptyRepo({
+            installationId,
+            owner: org,
+            name: repoName,
+            private: assignment.visibility === 'PRIVATE',
+            description: `Assignment repository for ${user.githubLogin}`,
+          })
 
     await db.assignmentRepo.update({
       where: { id: repo.id },

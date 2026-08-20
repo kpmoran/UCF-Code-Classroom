@@ -530,6 +530,36 @@ Three things that are easy to get wrong here and are each covered by a test:
 The control is on the sign-in page as well as in the header: someone who cannot
 comfortably read the page needs to fix that before signing in, not after.
 
+## Assignments without a template
+
+The template is optional. Leave it blank and every student gets an **empty** repository
+to push into — `auto_init` is false, so there is genuinely no commit, no default branch
+and no README nobody asked for. "Build this from scratch" is an ordinary assignment to
+set, so blank is a choice rather than a missing value, and the field says so in each of
+its states.
+
+Both `templateOwner` and `templateRepo` are nullable and move together; there is no
+meaningful state where a repository name exists without an owner. The provisioning jobs
+branch on their presence, and the empty path skips the wait for GitHub's asynchronous
+template copy — waiting for content that will never arrive would burn the whole timeout
+and fail the job.
+
+An empty repository is a different state on GitHub than an empty *template*, which is
+what caught a real bug here. Two behaviours were verified against a live installation
+rather than assumed:
+
+* Writing the autograding workflow **works**, through the contents API, and becomes the
+  repository's first commits along with its `main` branch.
+* Opening the feedback pull request **skips** with "the repository has no commits yet"
+  and opens by itself once the student pushes — but only after a fix. The git refs
+  endpoint answers `409 Git Repository is empty` where the rest of the API answers `404`,
+  and `getRef` only treated 404 as absence, so the job threw instead of skipping. Both
+  `getRef` and `getRepoHead` now treat 409 the same as 404, since to every caller they
+  mean the same thing.
+
+The deadline snapshot already recorded an empty SHA for a repository with no commits, so
+that path needed nothing.
+
 ## Exporting grades to Canvas
 
 From a classroom, open **Grades → Download CSV**, then in Canvas go to

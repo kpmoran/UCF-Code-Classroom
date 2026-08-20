@@ -22,12 +22,23 @@ export const createAssignmentSchema = z.object({
     .max(200, 'Keep the title under 200 characters.'),
   type: z.enum(['INDIVIDUAL', 'GROUP']),
 
-  // Accepts "owner/repo" or a full GitHub URL, normalized by the action.
+  /*
+   * Accepts "owner/repo" or a full GitHub URL, normalized by the action.
+   *
+   * Optional: an assignment may start from nothing, and each student then gets an
+   * empty repository to push into. "Write this from scratch" is an ordinary thing
+   * to set, so blank is a real choice here rather than a missing value — which is
+   * why the field is emptied to `undefined` rather than rejected.
+   */
   template: z
     .string()
     .trim()
-    .min(3, 'Choose or enter a template repository.')
-    .max(300),
+    .max(300)
+    .optional()
+    .transform((value) => (value === '' ? undefined : value))
+    .refine((value) => value === undefined || value.length >= 3, {
+      message: 'Enter a template as owner/repo, or leave it blank for empty repositories.',
+    }),
 
   repoPrefix: z
     .string()

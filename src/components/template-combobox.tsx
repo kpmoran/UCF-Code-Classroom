@@ -122,7 +122,8 @@ export function TemplateCombobox({
       <Input
         id={id}
         name={name}
-        required
+        // Not required: blank means "students get empty repositories", which is a
+        // supported choice, so the browser must not block submission.
         autoComplete="off"
         spellCheck={false}
         placeholder={`${orgLogin}/hw1-template`}
@@ -191,23 +192,26 @@ export function TemplateCombobox({
       {loadState === 'loading' ? (
         <FieldHint>
           Looking up template repositories in {orgLogin}… you can type any{' '}
-          <span className="font-mono">owner/repo</span> without waiting.
+          <span className="font-mono">owner/repo</span> without waiting, or leave this
+          blank to give each student an empty repository.
         </FieldHint>
       ) : loadState === 'failed' ? (
         <FieldHint>
           Could not reach GitHub for the list of templates in {orgLogin}. Type any{' '}
-          <span className="font-mono">owner/repo</span> — it is checked when you submit.
+          <span className="font-mono">owner/repo</span> — it is checked when you submit —
+          or leave it blank for empty repositories.
         </FieldHint>
       ) : templates.length > 0 ? (
         <FieldHint>
           {open && value.trim() !== '' && matches.length === 0
             ? `Nothing in ${orgLogin} matches “${value.trim()}”. You can still paste any owner/repo.`
-            : `${templates.length} template repositor${templates.length === 1 ? 'y' : 'ies'} in ${orgLogin} — start typing to filter, or paste any owner/repo.`}
+            : `${templates.length} template repositor${templates.length === 1 ? 'y' : 'ies'} in ${orgLogin} — start typing to filter, paste any owner/repo, or leave blank for empty repositories.`}
         </FieldHint>
       ) : (
         <FieldHint>
           No template repositories found in {orgLogin}. Create one and tick “Template repository”
-          in its GitHub settings, or paste any <span className="font-mono">owner/repo</span> here.
+          in its GitHub settings, paste any <span className="font-mono">owner/repo</span> here, or
+          leave this blank to give each student an empty repository.
         </FieldHint>
       )}
     </div>

@@ -142,7 +142,15 @@ export async function getRef(
     )
     return { sha: data.object.sha }
   } catch (error) {
-    if (error instanceof GitHubDomainError && error.status === 404) return null
+    /*
+     * 404 is "no such ref". 409 is "Git Repository is empty", which the git refs
+     * endpoint returns instead of 404 when the repository has no commits at all — a
+     * distinction that only surfaced once assignments could start from nothing.
+     * Both mean the same thing to every caller: there is no ref to read.
+     */
+    if (error instanceof GitHubDomainError && (error.status === 404 || error.status === 409)) {
+      return null
+    }
     throw error
   }
 }

@@ -97,8 +97,16 @@ export async function createAssignment(
     }
   }
 
-  const template = parseTemplateReference(input.template, classroom.githubOrgLogin)
-  if (!template) {
+  /*
+   * No template means students get empty repositories. Nothing to parse and nothing
+   * to check against GitHub, so both are skipped rather than made to tolerate an
+   * empty string — a blank field is a decision, not a missing value.
+   */
+  const template = input.template
+    ? parseTemplateReference(input.template, classroom.githubOrgLogin)
+    : null
+
+  if (input.template && !template) {
     return {
       ok: false,
       error: 'Enter the template as owner/repo, or paste its GitHub URL.',
@@ -108,15 +116,17 @@ export async function createAssignment(
 
   // Validated now rather than at provisioning time: otherwise a typo surfaces as
   // hundreds of identically failed jobs instead of one form error.
-  try {
-    const check = await validateTemplate(classroom.installationId, template.owner, template.repo)
-    if (!check.ok) {
-      return { ok: false, error: check.reason, fieldErrors: { template: check.reason } }
+  if (template) {
+    try {
+      const check = await validateTemplate(classroom.installationId, template.owner, template.repo)
+      if (!check.ok) {
+        return { ok: false, error: check.reason, fieldErrors: { template: check.reason } }
+      }
+    } catch (error) {
+      const message =
+        error instanceof GitHubDomainError ? error.userMessage : 'Could not reach GitHub.'
+      return { ok: false, error: message, fieldErrors: { template: message } }
     }
-  } catch (error) {
-    const message =
-      error instanceof GitHubDomainError ? error.userMessage : 'Could not reach GitHub.'
-    return { ok: false, error: message, fieldErrors: { template: message } }
   }
 
   const existingSlugs = new Set(
@@ -135,8 +145,8 @@ export async function createAssignment(
       title: input.title,
       slug,
       type: input.type,
-      templateOwner: template.owner,
-      templateRepo: template.repo,
+      templateOwner: template?.owner ?? null,
+      templateRepo: template?.repo ?? null,
       repoPrefix: input.repoPrefix,
       visibility: input.visibility,
       studentPermission: input.studentPermission,
@@ -160,7 +170,7 @@ export async function createAssignment(
       targetId: assignment.id,
       detail: {
         title: assignment.title,
-        template: `${template.owner}/${template.repo}`,
+        template: template ? `${template.owner}/${template.repo}` : null,
         type: input.type,
         published: input.publish,
       },

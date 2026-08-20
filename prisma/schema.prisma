@@ -310,8 +310,11 @@ model Assignment {
 
   // Source template. Kept as owner/name rather than an id because templates
   // may live outside the classroom's org.
-  templateOwner String
-  templateRepo  String
+  // Null on both when the assignment starts from nothing: students get an empty
+  // repository to push into. Kept as two nullable columns rather than one
+  // "hasTemplate" flag so there is no state where a name exists without an owner.
+  templateOwner String?
+  templateRepo  String?
 
   repoPrefix        String
   visibility        RepoVisibility    @default(PRIVATE)

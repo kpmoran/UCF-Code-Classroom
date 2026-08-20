@@ -24,6 +24,9 @@ async function cleanupGitHub() {
   for (const row of rows) {
     await deleteRepoIfExists(row.fullName!.split('/')[1])
   }
+  // Belt and braces for the no-template test, whose repository is named from a
+  // second prefix: a run that dies before writing the row still leaves a repo.
+  await deleteRepoIfExists(`${PREFIX}blank-sc100009`)
 }
 
 test.beforeEach(async () => {
@@ -157,6 +160,73 @@ test('a student accepts and the worker provisions a real repository', async ({
   // Clone instructions are offered.
   await page.getByText('How do I clone this?').click()
   await expect(page.getByText(new RegExp(`git clone .*${PREFIX}-ea100001\\.git`))).toBeVisible()
+})
+
+test('an assignment with no template provisions an empty repository', async ({
+  page,
+  context,
+}) => {
+  /*
+   * "Write this from scratch" is an ordinary assignment to set, so the template is
+   * optional and each student gets an empty repository instead of a copy.
+   *
+   * Worth exercising through the worker rather than only at the unit level: the
+   * provisioning job branches on whether a template is present, and the empty path
+   * must skip the wait for GitHub's asynchronous template copy — waiting for content
+   * that will never arrive would burn the whole timeout and fail the job.
+   */
+  const assignment = await db.assignment.create({
+    data: {
+      classroomId,
+      title: 'E2E From Scratch',
+      slug: 'e2e-from-scratch',
+      type: 'INDIVIDUAL',
+      templateOwner: null,
+      templateRepo: null,
+      repoPrefix: `${PREFIX}blank`,
+      visibility: 'PRIVATE',
+      studentPermission: 'PUSH',
+      publishedAt: new Date(),
+    },
+  })
+
+  const student = await seedSession('kpmoran')
+  await db.classroomMember.upsert({
+    where: { classroomId_userId: { classroomId, userId: student.id } },
+    update: { role: 'STUDENT' },
+    create: { classroomId, userId: student.id, role: 'STUDENT' },
+  })
+  await db.rosterEntry.create({
+    data: {
+      classroomId,
+      displayName: 'Scratch, Sam',
+      sisUserId: '39100009',
+      sisLoginId: 'sc100009',
+      rawColumns: {},
+      claimedByUserId: student.id,
+      claimedAt: new Date(),
+    },
+  })
+
+  await applySession(context, student)
+  await page.goto(`/classrooms/${SLUG}/assignments/${assignment.id}`)
+  await page.getByRole('button', { name: 'Accept assignment' }).click()
+
+  await expect(page.getByRole('link', { name: 'Open repository' })).toBeVisible({
+    timeout: 120_000,
+  })
+
+  const repoName = `${PREFIX}blank-sc100009`
+  const row = await db.assignmentRepo.findFirstOrThrow({
+    where: { assignmentId: assignment.id },
+  })
+  expect(row.status).toBe('READY')
+  expect(row.fullName).toBe(`${ORG}/${repoName}`)
+
+  const remote = await getRepoInfo(repoName)
+  expect(remote).not.toBeNull()
+  expect(remote?.private).toBe(true)
+  expect(await isRepoCollaborator(repoName, 'kpmoran')).toBe(true)
 })
 
 test('accepting twice does not create a second repository', async ({ page, context }) => {
