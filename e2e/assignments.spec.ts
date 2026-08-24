@@ -26,7 +26,8 @@ async function cleanupGitHub() {
   }
   // Belt and braces for the no-template test, whose repository is named from a
   // second prefix: a run that dies before writing the row still leaves a repo.
-  await deleteRepoIfExists(`${PREFIX}blank-sc100009`)
+  // Named from the GitHub login now, not the NID, so this follows VERIFY_USER.
+  await deleteRepoIfExists(`${PREFIX}blank-${VERIFY_USER}`)
 }
 
 test.beforeEach(async () => {
@@ -149,17 +150,29 @@ test('a student accepts and the worker provisions a real repository', async ({
     where: { assignmentId: assignment.id },
   })
   expect(row.status).toBe('READY')
-  expect(row.fullName).toBe(`${ORG}/${PREFIX}-ea100001`)
+
+  /*
+   * Named from the GitHub login, and specifically *not* from the NID. A repository
+   * name is visible to the whole organization and travels into clone URLs and Actions
+   * logs, and an NID is restricted student information — so this asserts the absence
+   * as well as the presence. Matched as a prefix rather than an exact string because
+   * dedupeRepoName may append a numeric suffix if a previous run left a repository
+   * behind.
+   */
+  const repoName = row.fullName!.split('/')[1]
+  expect(repoName).toMatch(new RegExp(`^${PREFIX}-${VERIFY_USER}`))
+  expect(row.fullName).not.toContain('ea100001')
+  expect(row.fullName).not.toContain('39100001')
 
   // It really exists on GitHub, and the student has access.
-  const remote = await getRepoInfo(`${PREFIX}-ea100001`)
+  const remote = await getRepoInfo(repoName)
   expect(remote).not.toBeNull()
   expect(remote?.private).toBe(true)
-  expect(await isRepoCollaborator(`${PREFIX}-ea100001`, VERIFY_USER)).toBe(true)
+  expect(await isRepoCollaborator(repoName, VERIFY_USER)).toBe(true)
 
   // Clone instructions are offered.
   await page.getByText('How do I clone this?').click()
-  await expect(page.getByText(new RegExp(`git clone .*${PREFIX}-ea100001\\.git`))).toBeVisible()
+  await expect(page.getByText(new RegExp(`git clone .*${repoName}\\.git`))).toBeVisible()
 })
 
 test('an assignment with no template provisions an empty repository', async ({
@@ -216,12 +229,13 @@ test('an assignment with no template provisions an empty repository', async ({
     timeout: 120_000,
   })
 
-  const repoName = `${PREFIX}blank-sc100009`
   const row = await db.assignmentRepo.findFirstOrThrow({
     where: { assignmentId: assignment.id },
   })
   expect(row.status).toBe('READY')
-  expect(row.fullName).toBe(`${ORG}/${repoName}`)
+  const repoName = row.fullName!.split('/')[1]
+  expect(repoName).toMatch(new RegExp(`^${PREFIX}blank-${VERIFY_USER}`))
+  expect(row.fullName).not.toContain('sc100009')
 
   const remote = await getRepoInfo(repoName)
   expect(remote).not.toBeNull()

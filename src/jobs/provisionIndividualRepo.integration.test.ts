@@ -115,34 +115,45 @@ describe('provisionIndividualRepo', () => {
 
     expect(after.status).toBe(RepoStatus.READY)
     expect(after.failureReason).toBeNull()
-    expect(after.fullName).toBe(`${ORG}/${PREFIX}-jt900001`)
+    // Named from the GitHub login. The NID must not appear: repository names are
+    // visible org-wide and an NID is restricted student information.
+    expect(after.fullName).toMatch(new RegExp(`^${ORG}/${PREFIX}-${STUDENT_LOGIN}`))
+    expect(after.fullName).not.toContain('jt900001')
     expect(after.githubRepoId).not.toBeNull()
-    expect(after.htmlUrl).toContain(`${ORG}/${PREFIX}-jt900001`)
+    expect(after.htmlUrl).toContain(after.fullName!)
 
-    createdRepoNames.add(`${PREFIX}-jt900001`)
+    const repoName = after.fullName!.split('/')[1]
+    createdRepoNames.add(repoName)
 
     // The repository really exists, and the template content came across.
-    const remote = await getRepo(installationId, ORG, `${PREFIX}-jt900001`)
+    const remote = await getRepo(installationId, ORG, repoName)
     expect(remote).not.toBeNull()
     expect(remote?.private).toBe(true)
 
     const octokit = getInstallationOctokit(installationId)
     const { data: contents } = await octokit.rest.repos.getContent({
       owner: ORG,
-      repo: `${PREFIX}-jt900001`,
+      repo: repoName,
       path: '',
     })
     const names = (contents as Array<{ name: string }>).map((c) => c.name)
     expect(names).toContain('src')
 
     // The student has access.
-    expect(await isCollaborator(installationId, ORG, `${PREFIX}-jt900001`, STUDENT_LOGIN)).toBe(
-      true,
-    )
+    expect(await isCollaborator(installationId, ORG, repoName, STUDENT_LOGIN)).toBe(true)
   }, 180_000)
 
-  it('names the repository from the SIS login id, not the GitHub login', async () => {
-    // The NID is stable across a GitHub rename and sorts with the Canvas roster.
+  it('names the repository from the GitHub login, never the NID', async () => {
+    /*
+     * This assertion used to be the exact opposite: the SIS login id was preferred
+     * because it survives a GitHub rename and sorts with the Canvas roster. Both hold,
+     * and both lose to the fact that a repository name is visible to everyone who can
+     * see the organization, and travels into clone URLs, Actions logs and any link a
+     * student pastes somewhere. A UCF NID is restricted student information.
+     *
+     * Asserted against the live result rather than the database alone, because the
+     * name that matters is the one GitHub ended up with.
+     */
     const row = await db.assignmentRepo.create({
       data: { assignmentId, userId: studentUserId, status: RepoStatus.QUEUED },
       select: { id: true },
@@ -150,9 +161,15 @@ describe('provisionIndividualRepo', () => {
     await provisionIndividualRepo({ assignmentRepoId: row.id })
 
     const after = await db.assignmentRepo.findUniqueOrThrow({ where: { id: row.id } })
-    expect(after.fullName).toContain('jt900001')
-    expect(after.fullName).not.toContain(STUDENT_LOGIN)
-    createdRepoNames.add(after.fullName!.split('/')[1])
+    const repoName = after.fullName!.split('/')[1]
+    createdRepoNames.add(repoName)
+
+    expect(repoName).toMatch(new RegExp(`^${PREFIX}-${STUDENT_LOGIN}`))
+    expect(after.fullName).not.toContain('jt900001')
+
+    // And on GitHub itself, not just in our row.
+    const remote = await getRepo(installationId, ORG, repoName)
+    expect(remote?.fullName).not.toContain('jt900001')
   }, 180_000)
 
   it('is idempotent — a second run does not create a second repository', async () => {

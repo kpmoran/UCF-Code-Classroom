@@ -270,13 +270,19 @@ async function markFailed(assignmentRepoId: string, reason: string): Promise<voi
 }
 
 /**
- * Pick an unused repository name.
+ * Pick an unused repository name, from the student's GitHub login and nothing else.
  *
- * Prefers the student's SIS login id (their NID) over their GitHub login,
- * because it is stable if they rename their GitHub account and it sorts
- * alongside the Canvas roster. Falls back to the GitHub login when the roster
- * has no usable identifier — for instance a name in a non-Latin script, which
- * `buildRepoName` refuses rather than reducing to an empty segment.
+ * This used to prefer the SIS login id — a UCF NID — because it is stable when a
+ * student renames their GitHub account and it sorts alongside the Canvas roster.
+ * Both of those are true, and neither is worth the cost: a repository name is visible
+ * to everyone who can see the organization, and it propagates into clone URLs, Actions
+ * logs, commit metadata, and any link a student pastes into a ticket or a chat. An NID
+ * is restricted student information and does not belong in any of those places.
+ *
+ * The GitHub login always survives sanitisation — GitHub itself only permits ASCII
+ * letters, digits and hyphens in a username — so the fallback below is unreachable in
+ * practice. It stays so that a future change to that assumption degrades into an ugly
+ * repository name rather than a failed provisioning job.
  */
 async function chooseRepoName(
   installationId: bigint,
@@ -285,25 +291,11 @@ async function chooseRepoName(
   assignmentRepoId: string,
   githubLogin: string,
 ): Promise<string> {
-  const rosterEntry = await db.rosterEntry.findFirst({
-    where: {
-      claimedByUser: { assignmentRepos: { some: { id: assignmentRepoId } } },
-    },
-    select: { sisLoginId: true },
-  })
-
-  const candidates = [rosterEntry?.sisLoginId, githubLogin].filter(
-    (v): v is string => Boolean(v),
-  )
-
   let base: string | null = null
-  for (const candidate of candidates) {
-    try {
-      base = buildRepoName({ prefix, identifier: candidate })
-      break
-    } catch {
-      // Nothing GitHub permits survived sanitisation; try the next candidate.
-    }
+  try {
+    base = buildRepoName({ prefix, identifier: githubLogin })
+  } catch {
+    base = null
   }
 
   if (!base) {
