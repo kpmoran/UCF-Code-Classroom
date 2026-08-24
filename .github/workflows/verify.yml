@@ -90,6 +90,12 @@ jobs:
       # so they can be repointed without editing this file; the defaults are the
       # current sandbox.
       VERIFY_ORG: ${{ vars.VERIFY_ORG || 'ucf-code-connect-sandbox' }}
+      # The account that stands in for a student. It is invited as a collaborator and
+      # added to teams, so GitHub emails it every time a run creates and tears those
+      # down — which, with this workflow running on every push to main, is a lot of
+      # mail for a human. Set the VERIFY_USER variable to a machine account in the
+      # organization and it goes there instead.
+      VERIFY_USER: ${{ vars.VERIFY_USER || 'kpmoran' }}
       VERIFY_INSTALLATION_ID: ${{ vars.VERIFY_INSTALLATION_ID || '154461207' }}
       RUN_WORKER: 'true'
       NEXT_TELEMETRY_DISABLED: '1'
@@ -219,6 +225,12 @@ jobs:
       # so they can be repointed without editing this file; the defaults are the
       # current sandbox.
       VERIFY_ORG: ${{ vars.VERIFY_ORG || 'ucf-code-connect-sandbox' }}
+      # The account that stands in for a student. It is invited as a collaborator and
+      # added to teams, so GitHub emails it every time a run creates and tears those
+      # down — which, with this workflow running on every push to main, is a lot of
+      # mail for a human. Set the VERIFY_USER variable to a machine account in the
+      # organization and it goes there instead.
+      VERIFY_USER: ${{ vars.VERIFY_USER || 'kpmoran' }}
       VERIFY_INSTALLATION_ID: ${{ vars.VERIFY_INSTALLATION_ID || '154461207' }}
       RUN_WORKER: 'true'
       NEXT_TELEMETRY_DISABLED: '1'

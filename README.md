@@ -832,6 +832,29 @@ These are not on every push, for three reasons worth knowing before you change i
 - They use fixed repository and team names in one shared organization, so
   concurrent runs would collide on the resources themselves.
 
+### Keeping the test emails out of your inbox
+
+The GitHub-touching suites need a real account to stand in for a student: they invite it
+as a repository collaborator and add it to teams, and GitHub refuses to do either for a
+name that does not exist. The consequence is that whoever that account is gets an email
+each time a run creates and tears those down — and since `verify.yml` runs on every push
+to `main` as well as nightly, a busy day means a busy inbox.
+
+Set the **`VERIFY_USER`** repository variable to a machine account that belongs to
+`VERIFY_ORG`, and the notifications go there instead of to a person:
+
+```bash
+gh variable set VERIFY_USER --repo <owner>/<repo> --body uccc-test-bot
+```
+
+It defaults to `kpmoran`, so leaving it unset keeps the current behaviour. The same
+variable is read by `npm run test:github` and the Playwright suites locally, which is
+worth knowing: **running the suites on your own machine sends those emails too**, so this
+is not only a CI setting.
+
+Two things the bot account needs, and nothing else: membership of the organization, so
+team and collaborator operations resolve, and no special permissions.
+
 ### Secrets to add
 
 Settings → Secrets and variables → Actions → **New repository secret**:

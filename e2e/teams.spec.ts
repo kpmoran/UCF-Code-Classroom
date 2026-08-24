@@ -1,5 +1,5 @@
 import { appAlert, applySession, db, expect, seedSession, test } from './fixtures'
-import { deleteRepoIfExists, deleteTeamIfExists, getRepoInfo } from './github'
+import { deleteRepoIfExists, deleteTeamIfExists, getRepoInfo, VERIFY_USER } from './github'
 
 /**
  * Group assignment team formation, through the browser.
@@ -109,7 +109,7 @@ test('a student creates a team and the worker provisions a real team repository'
 }) => {
   await seedClassroom({ maxTeamSize: 4 })
   // A real GitHub account, so the team membership call resolves.
-  const student = await enrolStudent('kpmoran', 'Knight, Ava', 'tk300001')
+  const student = await enrolStudent(VERIFY_USER, 'Knight, Ava', 'tk300001')
   await applySession(context, student)
 
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)

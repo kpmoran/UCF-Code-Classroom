@@ -1,5 +1,5 @@
 import { appAlert, applySession, db, expect, seedSession, test } from './fixtures'
-import { deleteRepoIfExists, getRepoInfo, isRepoCollaborator } from './github'
+import { deleteRepoIfExists, getRepoInfo, isRepoCollaborator, VERIFY_USER } from './github'
 
 /**
  * Assignment creation and the student accept flow, through the browser.
@@ -115,7 +115,7 @@ test('a student accepts and the worker provisions a real repository', async ({
   })
 
   // The student is a real GitHub account so the collaborator step can succeed.
-  const student = await seedSession('kpmoran')
+  const student = await seedSession(VERIFY_USER)
   await db.classroomMember.upsert({
     where: { classroomId_userId: { classroomId, userId: student.id } },
     update: { role: 'STUDENT' },
@@ -155,7 +155,7 @@ test('a student accepts and the worker provisions a real repository', async ({
   const remote = await getRepoInfo(`${PREFIX}-ea100001`)
   expect(remote).not.toBeNull()
   expect(remote?.private).toBe(true)
-  expect(await isRepoCollaborator(`${PREFIX}-ea100001`, 'kpmoran')).toBe(true)
+  expect(await isRepoCollaborator(`${PREFIX}-ea100001`, VERIFY_USER)).toBe(true)
 
   // Clone instructions are offered.
   await page.getByText('How do I clone this?').click()
@@ -190,7 +190,7 @@ test('an assignment with no template provisions an empty repository', async ({
     },
   })
 
-  const student = await seedSession('kpmoran')
+  const student = await seedSession(VERIFY_USER)
   await db.classroomMember.upsert({
     where: { classroomId_userId: { classroomId, userId: student.id } },
     update: { role: 'STUDENT' },
@@ -226,7 +226,7 @@ test('an assignment with no template provisions an empty repository', async ({
   const remote = await getRepoInfo(repoName)
   expect(remote).not.toBeNull()
   expect(remote?.private).toBe(true)
-  expect(await isRepoCollaborator(repoName, 'kpmoran')).toBe(true)
+  expect(await isRepoCollaborator(repoName, VERIFY_USER)).toBe(true)
 })
 
 test('accepting twice does not create a second repository', async ({ page, context }) => {
@@ -243,7 +243,7 @@ test('accepting twice does not create a second repository', async ({ page, conte
     },
   })
 
-  const student = await seedSession('kpmoran')
+  const student = await seedSession(VERIFY_USER)
   await db.classroomMember.upsert({
     where: { classroomId_userId: { classroomId, userId: student.id } },
     update: { role: 'STUDENT' },
@@ -351,7 +351,7 @@ test('instructor bulk-provisions with an honest ETA', async ({ page, context }) 
 
   // Two registered students, only one of whom is a real GitHub account. The
   // other must fail cleanly rather than stalling the batch.
-  const real = await seedSession('kpmoran')
+  const real = await seedSession(VERIFY_USER)
   const fake = await seedSession('e2e-nonexistent-account-9z8y7x')
 
   for (const [i, u] of [real, fake].entries()) {

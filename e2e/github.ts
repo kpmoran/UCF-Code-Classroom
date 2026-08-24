@@ -18,6 +18,20 @@ import { Octokit } from '@octokit/rest'
 
 export const ORG = process.env.VERIFY_ORG ?? 'ucf-code-connect-sandbox'
 
+/**
+ * The GitHub account that stands in for a student.
+ *
+ * It has to be a real account, because the suites invite it as a repository
+ * collaborator and add it to teams, and GitHub will not do either for a name that
+ * does not exist. That also means it receives GitHub's notifications: an email every
+ * time a test team it belongs to is created or deleted, which on a repository whose
+ * verify workflow runs on every push to main is a lot of email.
+ *
+ * So it is a variable. Point VERIFY_USER at a machine account that is a member of
+ * VERIFY_ORG and the notifications go there instead of to a person.
+ */
+export const VERIFY_USER = process.env.VERIFY_USER ?? 'kpmoran'
+
 function octokit(): Octokit {
   const appId = process.env.GITHUB_APP_ID
   const rawKey = process.env.GITHUB_APP_PRIVATE_KEY
