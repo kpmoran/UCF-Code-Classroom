@@ -60,6 +60,11 @@ test('instructor creates a classroom, edits settings, and archives it', async ({
   await expect(page.getByRole('heading', { name: CLASSROOM_NAME })).toBeVisible()
   await expect(page.getByText('No assignments yet')).toBeVisible()
 
+  // Sharing the link is the first thing you do with a new classroom, so it is on the
+  // page you land on rather than in settings.
+  await expect(page.getByLabel('Invite link')).toHaveValue(/\/join\/[A-Za-z0-9_-]+$/)
+  await expect(page.getByRole('button', { name: 'Copy' })).toBeVisible()
+
   const created = await db.classroom.findUnique({ where: { slug: EXPECTED_SLUG } })
   expect(created).not.toBeNull()
   expect(created?.githubOrgLogin).toBe(ORG)
@@ -194,8 +199,10 @@ test('a student cannot reach instructor settings, and a non-member gets 404', as
 
   await page.goto(`/classrooms/${EXPECTED_SLUG}`)
   await expect(page.getByRole('heading', { name: CLASSROOM_NAME })).toBeVisible()
-  // Staff-only controls are absent.
+  // Staff-only controls are absent. The classroom page is shared with students, so
+  // the invite bar has to be gated rather than merely placed somewhere staff-ish.
   await expect(page.getByRole('link', { name: 'Settings' })).toHaveCount(0)
+  await expect(page.getByLabel('Invite link')).toHaveCount(0)
 
   /*
    * Member with too low a role => 403, on every staff route.

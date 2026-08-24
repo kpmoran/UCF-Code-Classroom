@@ -5,9 +5,11 @@ import { Badge } from '@/components/ui/badge'
 import { ButtonLink } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/table'
+import { InviteLinkBar } from '@/components/invite-link-panel'
 import { requireClassroomRole } from '@/lib/auth/dal'
 import { ROLE_LABEL, roleSatisfies } from '@/lib/auth/roles'
 import { db } from '@/lib/db'
+import { env } from '@/lib/env'
 
 export default async function ClassroomPage(props: PageProps<'/classrooms/[slug]'>) {
   const { slug } = await props.params
@@ -16,7 +18,7 @@ export default async function ClassroomPage(props: PageProps<'/classrooms/[slug]
 
   const isStaff = roleSatisfies(role, 'TA')
 
-  const [assignments, rosterCount, claimedCount, memberCount] = await Promise.all([
+  const [assignments, rosterCount, claimedCount, memberCount, inviteLink] = await Promise.all([
     db.assignment.findMany({
       where: {
         classroomId: classroom.id,
@@ -39,7 +41,19 @@ export default async function ClassroomPage(props: PageProps<'/classrooms/[slug]
       where: { classroomId: classroom.id, removedAt: null, claimedByUserId: { not: null } },
     }),
     db.classroomMember.count({ where: { classroomId: classroom.id } }),
+    // Only for staff; students already used the link to get here.
+    isStaff
+      ? db.inviteLink.findFirst({
+          where: { classroomId: classroom.id, revokedAt: null },
+          orderBy: { createdAt: 'desc' },
+          select: { token: true, useCount: true },
+        })
+      : null,
   ])
+
+  const joinUrl = inviteLink
+    ? `${env.APP_URL.replace(/\/$/, '')}/join/${inviteLink.token}`
+    : null
 
   return (
     <>
@@ -106,6 +120,14 @@ export default async function ClassroomPage(props: PageProps<'/classrooms/[slug]
             </div>
           </div>
         </div>
+
+        {isStaff && !classroom.archivedAt ? (
+          <InviteLinkBar
+            joinUrl={joinUrl}
+            useCount={inviteLink?.useCount ?? 0}
+            settingsHref={`/classrooms/${classroom.slug}/settings`}
+          />
+        ) : null}
 
         {search.notOwner ? (
           <div
