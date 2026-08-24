@@ -167,6 +167,11 @@ Go to **Organization Settings → Developer settings → GitHub Apps → New Git
 
 - **Homepage URL**: `http://localhost:3000` (your deployed URL in production)
 - **Callback URL**: `http://localhost:3000/api/auth/callback/github`
+- **Callback URL** (add a second): `http://localhost:3000/api/auth/callback/github-owner`
+  — the "Connect GitHub as organization owner" button in classroom settings signs in
+  through a separate Auth.js provider, so it has its own callback path. Omit it and that
+  button fails with GitHub's `redirect_uri is not associated with this application`,
+  which names nothing useful.
 - **Request user authorization (OAuth) during installation**: checked
 - **Webhook URL**: see [Webhooks in development](#webhooks-in-development)
 - **Webhook secret**: the `openssl rand -hex 32` value you generated
@@ -1054,8 +1059,14 @@ autograding results and feedback pull requests stop waiting for a sweep:
 |---|---|
 | Homepage URL | `https://your-domain` |
 | Callback URL | `https://your-domain/api/auth/callback/github` |
+| Callback URL | `https://your-domain/api/auth/callback/github-owner` |
 | Webhook URL | `https://your-domain/api/webhooks/github` |
 | Webhook secret | the `GITHUB_WEBHOOK_SECRET` from `/opt/uccc/.env` |
+
+Both are needed: the second is the organization-owner connection, and a missing entry
+there shows up only as a `redirect_uri` error at the moment someone clicks the button.
+The field holds as many as you like — `/api/auth/providers` on a running instance lists
+exactly what the app will ask GitHub for, which is the quickest way to check.
 
 Keep `http://localhost:3000/api/auth/callback/github` in the callback list as well
 if you still want local sign-in to work — the field accepts several.

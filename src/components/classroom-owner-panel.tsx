@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { signIn } from '@/lib/auth/config'
 import { OWNER_PROVIDER_ID } from '@/lib/auth/providers'
 import { db } from '@/lib/db'
+import { env } from '@/lib/env'
 import { checkOwnerToken } from '@/lib/github/ownerToken'
 
 /**
@@ -48,6 +49,10 @@ export async function ClassroomOwnerPanel({
   const holder = classroom?.ownerTokenUser
   const holderLabel = holder?.githubLogin ?? holder?.name ?? null
 
+  // Derived from APP_URL and the provider id, so it cannot drift from the URL Auth.js
+  // actually sends. Confirmed against /api/auth/providers, which reports the same.
+  const callbackUrl = `${env.APP_URL.replace(/\/$/, '')}/api/auth/callback/${OWNER_PROVIDER_ID}`
+
   return (
     <Card>
       <CardHeader>
@@ -61,17 +66,28 @@ export async function ClassroomOwnerPanel({
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <div className="flex items-center justify-between gap-3 flex-wrap">
+          {/*
+            * The left side says who holds the credential, the badge says whether it
+            * works. They are different questions: creating a classroom assigns the
+            * credential to its creator immediately, but no token exists until someone
+            * completes the connection below — so "assigned to you" and "not connected"
+            * are both true at once, and saying only "Not connected" twice explained
+            * neither.
+            */}
           <span>
-            {status.ok && holderLabel ? (
+            {holderLabel ? (
               <>
-                Connected as <span className="font-mono text-xs">{holderLabel}</span>
+                {status.ok ? 'Connected as ' : 'Assigned to '}
+                <span className="font-mono text-xs">{holderLabel}</span>
               </>
             ) : (
-              'Not connected'
+              'Nobody is assigned yet.'
             )}
           </span>
           {status.ok ? (
             <Badge tone="success">Connected</Badge>
+          ) : holderLabel ? (
+            <Badge tone="warning">No token stored</Badge>
           ) : (
             <Badge tone="warning">Not connected</Badge>
           )}
@@ -99,6 +115,22 @@ export async function ClassroomOwnerPanel({
           anything. Connecting as a member succeeds and still cannot create teams, which is
           why the check above reports the credential rather than the outcome.
         </p>
+
+        {!status.ok ? (
+          /*
+           * This button signs in through a second Auth.js provider, so GitHub needs a
+           * second callback URL registered — and a missing one surfaces only as GitHub's
+           * "redirect_uri is not associated with this application" page, which names
+           * nothing you can act on. So the URL is stated here, where someone reads it
+           * moments before hitting that error.
+           */
+          <p className="text-xs text-muted">
+            If GitHub reports a <span className="font-mono">redirect_uri</span> problem, add{' '}
+            <span className="font-mono break-all">{callbackUrl}</span> to the App&rsquo;s
+            callback URLs. It is a second sign-in route, so the one used for normal sign-in
+            does not cover it.
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   )

@@ -399,6 +399,17 @@ test('with nobody to hand it to, the credential is cleared and settings says so'
     page.getByRole('button', { name: 'Connect GitHub as organization owner' }),
   ).toBeVisible()
   await expect(page.getByText(/No organization owner is connected/)).toBeVisible()
+
+  /*
+   * The panel names the callback URL the button needs. A second Auth.js provider means
+   * a second callback path on the App, and if it is missing the only symptom is
+   * GitHub's redirect_uri error page, which names nothing actionable — so the URL is
+   * on screen next to the button that triggers it.
+   */
+  await expect(page.getByText(/api\/auth\/callback\/github-owner/)).toBeVisible()
+
+  // "Not connected" once, not twice: the holder and the token are separate questions.
+  expect(await page.getByText('Not connected', { exact: true }).count()).toBe(1)
 })
 
 test('demoting the owner-token holder out of instructor also releases it', async ({
