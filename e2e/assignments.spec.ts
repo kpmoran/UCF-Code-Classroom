@@ -471,6 +471,55 @@ test('the template field suggests the organization\u2019s templates as you type'
   await expect(list).toBeHidden()
 })
 
+test('an assignment is reachable by its slug, for linking from a syllabus', async ({
+  page,
+  context,
+}) => {
+  /*
+   * Instructors link assignments from a course website, and a cuid is not something
+   * anyone can retype or read aloud. The slug already existed on the row; only the
+   * route needed to accept it.
+   *
+   * The signed-out case matters just as much: a student clicking a syllabus link is
+   * usually not signed in yet, and has to land back on the assignment afterwards
+   * rather than on a dashboard.
+   */
+  const assignment = await db.assignment.create({
+    data: {
+      classroomId,
+      title: 'E2E Slug Link',
+      slug: 'e2e-slug-link',
+      type: 'INDIVIDUAL',
+      templateOwner: ORG,
+      templateRepo: TEMPLATE,
+      repoPrefix: `${PREFIX}slug`,
+      publishedAt: new Date(),
+    },
+  })
+
+  const instructor = await seedSession('kpmoran', { isSiteAdmin: true })
+  await applySession(context, instructor)
+
+  const bySlug = await page.goto(`/classrooms/${SLUG}/assignments/e2e-slug-link`)
+  expect(bySlug?.status()).toBe(200)
+  await expect(page.getByRole('heading', { name: 'E2E Slug Link' })).toBeVisible()
+
+  // The id keeps working, so links already shared do not break.
+  const byId = await page.goto(`/classrooms/${SLUG}/assignments/${assignment.id}`)
+  expect(byId?.status()).toBe(200)
+
+  // A slug that matches nothing is a 404, not someone else's assignment.
+  const missing = await page.goto(`/classrooms/${SLUG}/assignments/no-such-assignment`)
+  expect(missing?.status()).toBe(404)
+
+  // Signed out, the link survives the round trip through sign-in.
+  await context.clearCookies()
+  const anon = await page.goto(`/classrooms/${SLUG}/assignments/e2e-slug-link`)
+  expect(anon?.status()).toBe(200)
+  await expect(page).toHaveURL(/\/signin\?next=/)
+  expect(decodeURIComponent(page.url())).toContain('/assignments/e2e-slug-link')
+})
+
 test('the form is rendered without waiting for GitHub', async ({ context }) => {
   /*
    * The page used to fetch the organization's templates while rendering, which made

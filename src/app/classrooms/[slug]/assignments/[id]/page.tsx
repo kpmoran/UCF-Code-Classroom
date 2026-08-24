@@ -34,8 +34,17 @@ export default async function AssignmentPage(
 
   const isStaff = roleSatisfies(role, 'TA')
 
+  /*
+   * The path segment is an id *or* the assignment's slug, matching how the classroom
+   * segment above already works. The slug is what makes an assignment linkable from a
+   * syllabus or a course website: `.../assignments/hw1-unit-testing` survives being
+   * retyped and read aloud, where a cuid does not.
+   *
+   * Scoped to the classroom, so a slug only has to be unique within one course —
+   * which `dedupeSlug` already guarantees when the assignment is created.
+   */
   const assignment = await db.assignment.findFirst({
-    where: { id, classroomId: classroom.id },
+    where: { classroomId: classroom.id, OR: [{ id }, { slug: id }] },
     select: {
       id: true,
       title: true,
