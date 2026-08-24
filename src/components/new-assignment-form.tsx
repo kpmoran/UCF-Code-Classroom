@@ -156,7 +156,7 @@ export function NewAssignmentForm({
             <FieldHint>
               Repositories will be named like{' '}
               <span className="font-mono">
-                {samplePrefix}-{type === 'GROUP' ? 'team-name' : 'student-nid'}
+                {samplePrefix}-{type === 'GROUP' ? 'team-name' : 'github-username'}
               </span>
               . This cannot be changed once repositories exist.
             </FieldHint>

@@ -491,6 +491,16 @@ test('the form is rendered without waiting for GitHub', async ({ context }) => {
 
   // The form itself is there...
   expect(html).toContain('Repository name prefix')
+
+  /*
+   * And the example name it advertises matches what provisioning actually does.
+   * This drifted once already: naming moved off the NID and onto the GitHub login,
+   * but the hint under the prefix field still read "<prefix>-student-nid", so the
+   * form promised to put restricted information in a repository name that it no
+   * longer used. Nothing asserted the copy, so nothing caught it.
+   */
+  expect(html).toContain('github-username')
+  expect(html).not.toContain('student-nid')
   // ...and says it is still looking, rather than carrying the answer.
   expect(html).toContain('Looking up template repositories')
   // The proof: no template name was resolved server-side.
