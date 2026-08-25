@@ -542,6 +542,87 @@ test('an assignment is reachable by its slug, for linking from a syllabus', asyn
   expect(decodeURIComponent(page.url())).toContain('/assignments/e2e-slug-link')
 })
 
+test('project boards can be switched on for an assignment already under way', async ({
+  page,
+  context,
+}) => {
+  /*
+   * The backfill is the case that matters. Provisioning only creates a board when a
+   * student accepts, so an assignment whose repositories already exist — which is
+   * every assignment by the time anyone decides they want boards — would otherwise
+   * get boards for nobody.
+   *
+   * Stops short of the GitHub call: creating a board needs the App to hold
+   * `Projects: write`, which is not granted by default, so the job records a reason
+   * and moves on. What is asserted here is that the work is queued for exactly the
+   * repositories that can take a board.
+   */
+  const assignment = await db.assignment.create({
+    data: {
+      classroomId,
+      title: 'E2E Board Backfill',
+      slug: 'e2e-board-backfill',
+      type: 'INDIVIDUAL',
+      templateOwner: ORG,
+      templateRepo: TEMPLATE,
+      repoPrefix: `${PREFIX}bd`,
+      publishedAt: new Date(),
+      projectBoardEnabled: false,
+    },
+  })
+
+  const instructor = await seedSession('kpmoran', { isSiteAdmin: true })
+
+  // Two repositories that already exist, and one still provisioning.
+  for (const [i, status] of (['READY', 'READY', 'QUEUED'] as const).entries()) {
+    const student = await seedSession(`e2e-board-student-${i}`)
+    await db.classroomMember.upsert({
+      where: { classroomId_userId: { classroomId, userId: student.id } },
+      update: { role: 'STUDENT' },
+      create: { classroomId, userId: student.id, role: 'STUDENT' },
+    })
+    await db.assignmentRepo.create({
+      data: {
+        assignmentId: assignment.id,
+        userId: student.id,
+        status,
+        fullName: status === 'READY' ? `${ORG}/${PREFIX}bd-${i}` : null,
+      },
+    })
+  }
+
+  await applySession(context, instructor)
+  await page.goto(`/classrooms/${SLUG}/assignments/${assignment.id}`)
+
+  /*
+   * Scoped to the region: the feedback panel beside it carries an identical on/off
+   * control, so "Turn on" alone is ambiguous — to a screen reader user as much as to
+   * a test, which is why the panel is a labelled landmark rather than just a card.
+   */
+  const panel = page.getByRole('region', { name: 'Project boards' })
+  await expect(panel).toBeVisible()
+  await panel.getByRole('button', { name: 'Turn on' }).click()
+
+  // Enabled, and the two ready repositories are queued; the third has no repository
+  // to link a board to and is left for provisioning to handle.
+  await expect
+    .poll(async () => {
+      const row = await db.assignment.findUniqueOrThrow({
+        where: { id: assignment.id },
+        select: { projectBoardEnabled: true },
+      })
+      return row.projectBoardEnabled
+    })
+    .toBe(true)
+
+  await expect(panel.getByText(/Creating 2 boards/)).toBeVisible()
+
+  const audit = await db.auditLog.findFirst({
+    where: { classroomId, action: 'assignment.project_boards_on' },
+  })
+  expect((audit?.detail as Record<string, unknown>)?.queued).toBe(2)
+})
+
 test('the form is rendered without waiting for GitHub', async ({ context }) => {
   /*
    * The page used to fetch the organization's templates while rendering, which made

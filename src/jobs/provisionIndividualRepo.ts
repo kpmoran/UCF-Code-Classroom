@@ -12,14 +12,9 @@ import {
   generateRepoFromTemplate,
   listOrgRepoNames,
 } from '@/lib/github/operations/repos'
-import {
-  createLinkedProjectBoard,
-  describeBoardFailure,
-  repositoryNodeId,
-} from '@/lib/github/operations/projects'
 import { buildRepoName, dedupeRepoName } from '@/lib/github/repoName'
 
-import type { ProvisionIndividualRepoJob } from './queue'
+import { ProvisionIndividualRepoJob, QUEUES, enqueue } from './queue'
 
 /**
  * Provision one student's repository for an individual assignment.
@@ -110,7 +105,6 @@ export async function provisionIndividualRepo(
   })
 
   let autogradeWarning: string | null = null
-  let boardWarning: string | null = null
 
   try {
     // 1. Decide the repository name, once, and remember it.
@@ -181,39 +175,21 @@ export async function provisionIndividualRepo(
 
 
     /*
-     * Project board, when the assignment asks for one.
+     * Project board, when the assignment wants one — queued, not created here.
      *
-     * Owned by the organization, not the student: GitHub only links a project to a
-     * repository owned by the same account, so a board on the student's own account
-     * could never attach here. Skipped when a board is already recorded, because
-     * GitHub will cheerfully create a second project with the same title.
-     *
-     * Not fatal. The student has a working repository either way, and a classroom
-     * whose App has not been granted `Projects: write` should not fail every
-     * provisioning job over a planning aid.
+     * It is a GitHub write per repository, competing for the same 80-per-minute
+     * budget as generating the repository itself, so creating it inline would make a
+     * whole class accepting at once push provisioning over the limit. Queuing also
+     * makes it recoverable: an assignment that has boards switched on afterwards is
+     * one enqueue per repository away from being correct, with no second
+     * implementation of the same thing.
      */
     if (assignment.projectBoardEnabled && !repo.projectUrl) {
-      try {
-        const repoNodeId = await repositoryNodeId(installationId, org, repoName)
-        const board = await createLinkedProjectBoard({
-          installationId,
-          org,
-          repoNodeId,
-          title: `${assignment.title} — ${user.githubLogin}`,
-        })
-        await db.assignmentRepo.update({
-          where: { id: repo.id },
-          data: { projectUrl: board.url, projectNumber: board.number },
-        })
-        console.log(`[jobs] project board ${board.url} linked to ${created.fullName}`)
-      } catch (error) {
-        // Both forms checked: GitHubDomainError rewrites some messages, and the
-        // permission text can arrive in either one.
-        const raw = (error as Error).message
-        const message = error instanceof GitHubDomainError ? error.userMessage : raw
-        boardWarning = describeBoardFailure(`${message} ${raw}`)
-        console.warn(`[jobs] project board failed for ${created.fullName}: ${message}`)
-      }
+      await enqueue(
+        QUEUES.createProjectBoard,
+        { assignmentRepoId: repo.id },
+        { singletonKey: `board:${repo.id}` },
+      )
     }
 
     // Autograding workflow. Written after the repository exists and before the
@@ -288,7 +264,7 @@ export async function provisionIndividualRepo(
        */
       data: {
         status: RepoStatus.READY,
-        failureReason: [autogradeWarning, boardWarning].filter(Boolean).join(' ') || null,
+        failureReason: autogradeWarning,
       },
     })
   } catch (error) {

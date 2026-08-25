@@ -868,6 +868,19 @@ The board URL is stored on the row, so a retried job links the board that exists
 than creating a second one — GitHub will happily create any number of identically titled
 projects.
 
+### Adding boards to an assignment already under way
+
+Provisioning only creates a board when a student accepts, which would mean switching the
+setting on applied to nobody who had already started — and by the time anyone decides
+they want boards, that is usually everyone. So the assignment page has a **Project
+boards** panel that switches the setting and backfills in one action, with three counts:
+repositories that have a board, ones that are ready and do not, and ones with no
+repository yet. Only the middle column needs anything from you; the last is handled by
+provisioning when those repositories appear.
+
+Turning boards *off* leaves existing ones alone. They may already hold a student's
+planning, and deleting that to honour a checkbox would be the wrong reading of it.
+
 Students can also keep boards on their own accounts for personal planning, which is what
 the link on their assignment page offers; `github.com/projects` is a 404, so it has to
 carry their login.

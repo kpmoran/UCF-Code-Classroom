@@ -156,12 +156,17 @@ test('turning the feature on backfills students who already pushed', async ({
   await applySession(context, instructor)
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
 
-  await expect(page.getByText('off', { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('region', { name: 'Feedback pull requests' }).getByText('off', { exact: true }),
+  ).toBeVisible()
   await expect(
     page.getByText(/opens a pull request for every student who has already pushed/),
   ).toBeVisible()
 
-  await page.getByRole('button', { name: 'Turn on' }).click()
+  await page
+    .getByRole('region', { name: 'Feedback pull requests' })
+    .getByRole('button', { name: 'Turn on' })
+    .click()
   await expect(page.getByRole('status')).toContainText('Opening 2 pull requests')
 
   const assignment = await db.assignment.findUniqueOrThrow({ where: { id: assignmentId } })
@@ -178,8 +183,13 @@ test('turning the feature off is recorded and stops offering the backfill', asyn
   await applySession(context, instructor)
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
 
-  await page.getByRole('button', { name: 'Turn off' }).click()
-  await expect(page.getByText('off', { exact: true })).toBeVisible()
+  await page
+    .getByRole('region', { name: 'Feedback pull requests' })
+    .getByRole('button', { name: 'Turn off' })
+    .click()
+  await expect(
+    page.getByRole('region', { name: 'Feedback pull requests' }).getByText('off', { exact: true }),
+  ).toBeVisible()
   await expect(page.getByRole('button', { name: /Open \d+ missing/ })).toHaveCount(0)
 
   const audit = await db.auditLog.findFirst({

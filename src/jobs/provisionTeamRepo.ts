@@ -3,11 +3,6 @@ import 'server-only'
 import { RepoStatus } from '@prisma/client'
 
 import { injectAutogradingWorkflow } from '@/lib/autograding/inject'
-import {
-  createLinkedProjectBoard,
-  describeBoardFailure,
-  repositoryNodeId,
-} from '@/lib/github/operations/projects'
 import { db } from '@/lib/db'
 import { GitHubDomainError } from '@/lib/github/errors'
 import { toGitHubPermission } from '@/lib/github/operations/collaborators'
@@ -24,7 +19,7 @@ import {
 } from '@/lib/github/operations/teams'
 import { buildTeamRepoName, dedupeRepoName, slugifyTeamName } from '@/lib/github/repoName'
 
-import type { ProvisionTeamRepoJob } from './queue'
+import { ProvisionTeamRepoJob, QUEUES, enqueue } from './queue'
 
 /**
  * Provision a team's repository for a group assignment.
@@ -136,7 +131,6 @@ export async function provisionTeamRepo(job: ProvisionTeamRepoJob): Promise<void
   })
 
   let autogradeWarning: string | null = null
-  let boardWarning: string | null = null
 
   try {
     // 1. The GitHub team. Named for the assignment so several assignments in one
@@ -232,32 +226,14 @@ export async function provisionTeamRepo(job: ProvisionTeamRepoJob): Promise<void
     // Autograding workflow. Written after the repository exists and before the
     // feedback PR, so the injected commits are part of the starting state rather
     // than appearing as student work in the feedback diff.
-    /*
-     * One board per team, mirroring the individual path — organization-owned,
-     * because GitHub only links a project to a repository owned by the same account.
-     * Skipped when one is already recorded: a retry must attach the existing board
-     * rather than create a second identically titled one.
-     */
+    // One board per team, mirroring the individual path — queued for the same
+    // reason: it is a GitHub write per repository against a shared rate budget.
     if (assignment.projectBoardEnabled && !repo.projectUrl) {
-      try {
-        const repoNodeId = await repositoryNodeId(installationId, org, repoName)
-        const board = await createLinkedProjectBoard({
-          installationId,
-          org,
-          repoNodeId,
-          title: `${assignment.title} — ${team.name}`,
-        })
-        await db.assignmentRepo.update({
-          where: { id: repo.id },
-          data: { projectUrl: board.url, projectNumber: board.number },
-        })
-      } catch (error) {
-        // Both forms checked: GitHubDomainError rewrites some messages, and the
-        // permission text can arrive in either one.
-        const raw = (error as Error).message
-        const message = error instanceof GitHubDomainError ? error.userMessage : raw
-        boardWarning = describeBoardFailure(`${message} ${raw}`)
-      }
+      await enqueue(
+        QUEUES.createProjectBoard,
+        { assignmentRepoId: repo.id },
+        { singletonKey: `board:${repo.id}` },
+      )
     }
 
     if (assignment.autogradeEnabled) {
@@ -323,7 +299,7 @@ export async function provisionTeamRepo(job: ProvisionTeamRepoJob): Promise<void
       data: {
         status: RepoStatus.READY,
         failureReason:
-          [autogradeWarning, boardWarning].filter(Boolean).join(' ') ||
+          autogradeWarning ??
           (membersMissingLogin > 0
             ? membersMissingLogin === 1
               ? '1 team member has not linked a GitHub account, so they have no access yet.'

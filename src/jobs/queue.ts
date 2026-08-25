@@ -25,6 +25,7 @@ export const QUEUES = {
   revokeStudentAccess: 'revoke-student-access',
   ensureFeedbackPr: 'ensure-feedback-pr',
   sweepFeedbackPrs: 'sweep-feedback-prs',
+  createProjectBoard: 'create-project-board',
 } as const
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
@@ -117,6 +118,11 @@ export type EnsureFeedbackPrJob = {
   assignmentRepoId: string
 }
 
+/** One organization-owned project board, linked to this repository. */
+export type CreateProjectBoardJob = {
+  assignmentRepoId: string
+}
+
 /** Carries no payload; scans for repositories still awaiting a feedback PR. */
 export type SweepFeedbackPrsJob = Record<string, never>
 
@@ -136,6 +142,7 @@ type JobPayloads = {
   [QUEUES.revokeStudentAccess]: RevokeStudentAccessJob
   [QUEUES.ensureFeedbackPr]: EnsureFeedbackPrJob
   [QUEUES.sweepFeedbackPrs]: SweepFeedbackPrsJob
+  [QUEUES.createProjectBoard]: CreateProjectBoardJob
 }
 
 /**

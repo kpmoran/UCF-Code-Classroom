@@ -6,6 +6,7 @@ import { AssignmentStudentPanel } from '@/components/assignment-student-panel'
 import { AutogradingPanel } from '@/components/autograding-panel'
 import { DeadlinePanel } from '@/components/deadline-panel'
 import { FeedbackPrPanel } from '@/components/feedback-pr-panel'
+import { ProjectBoardPanel } from '@/components/project-board-panel'
 import { InstructorTeamPanel } from '@/components/instructor-team-panel'
 import { TeamFormationPanel } from '@/components/team-formation-panel'
 import { SiteHeader } from '@/components/site-header'
@@ -113,7 +114,13 @@ export default async function AssignmentPage(
         </div>
 
         {isStaff ? (
-          <StaffView assignment={assignment} classroomSlug={classroom.slug} classroomId={classroom.id} installationId={classroom.installationId} />
+          <StaffView
+            assignment={assignment}
+            classroomSlug={classroom.slug}
+            classroomId={classroom.id}
+            orgLogin={classroom.githubOrgLogin}
+            installationId={classroom.installationId}
+          />
         ) : assignment.type === 'GROUP' ? (
           <StudentTeamView
             assignmentId={assignment.id}
@@ -138,6 +145,7 @@ async function StaffView({
   assignment,
   classroomSlug,
   classroomId,
+  orgLogin,
   installationId,
 }: {
   assignment: {
@@ -152,6 +160,7 @@ async function StaffView({
   }
   classroomSlug: string
   classroomId: string
+  orgLogin: string
   installationId: bigint
 }) {
   const [repos, rosterClaimed, budget] = await Promise.all([
@@ -202,6 +211,7 @@ async function StaffView({
       />
       <StaffAutogradingSection assignmentId={assignment.id} />
       <StaffFeedbackSection assignmentId={assignment.id} />
+      <StaffProjectBoardSection assignmentId={assignment.id} orgLogin={orgLogin} />
       {assignment.type === 'GROUP' ? (
         <StaffTeamSection assignmentId={assignment.id} classroomId={classroomId} />
       ) : null}
@@ -602,6 +612,42 @@ async function StaffAutogradingSection({ assignmentId }: { assignmentId: string 
         timeoutMinutes: t.timeoutMinutes,
         points: t.points,
       }))}
+    />
+  )
+}
+
+/** Project board status for staff, and the backfill. */
+async function StaffProjectBoardSection({
+  assignmentId,
+  orgLogin,
+}: {
+  assignmentId: string
+  orgLogin: string
+}) {
+  const [assignment, withBoard, missing, notProvisioned] = await Promise.all([
+    db.assignment.findUniqueOrThrow({
+      where: { id: assignmentId },
+      select: { projectBoardEnabled: true },
+    }),
+    db.assignmentRepo.count({ where: { assignmentId, projectUrl: { not: null } } }),
+    // Ready and boardless: the set the backfill acts on.
+    db.assignmentRepo.count({
+      where: { assignmentId, status: 'READY', projectUrl: null, fullName: { not: null } },
+    }),
+    // No repository yet, so nothing to link a board to. Provisioning queues one.
+    db.assignmentRepo.count({
+      where: { assignmentId, projectUrl: null, OR: [{ status: { not: 'READY' } }, { fullName: null }] },
+    }),
+  ])
+
+  return (
+    <ProjectBoardPanel
+      assignmentId={assignmentId}
+      orgLogin={orgLogin}
+      enabled={assignment.projectBoardEnabled}
+      withBoard={withBoard}
+      missing={missing}
+      notProvisioned={notProvisioned}
     />
   )
 }
