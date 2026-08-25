@@ -849,10 +849,28 @@ The student-facing copy says exactly that, because the obvious-sounding advice �
 board and link your repository to it" — is a dead end that looks like it should work. An
 earlier version of this page gave that advice; it was wrong.
 
-If you want boards attached to assignment repositories, create them in the organization
-and link the repositories from there. Students can still keep boards on their own
-accounts for personal planning, which is what the link on their assignment page offers;
-`github.com/projects` is a 404, so it has to carry their login.
+### Creating them automatically
+
+Tick **Create a project board for each student** when creating an assignment, and
+provisioning makes one board per student (or per team) owned by the organization and
+linked to their repository — `createProjectV2` takes a `repositoryId`, so creating and
+linking is a single mutation rather than two.
+
+It needs one thing that is not on by default:
+
+> **Projects: write** on the GitHub App — and, like every permission change, each
+> organization must *accept* it before it takes effect. Until then the option is
+> harmless: provisioning succeeds, the repository works, and the assignment records
+> "The GitHub App is not allowed to create project boards…" against the affected rows
+> rather than failing.
+
+The board URL is stored on the row, so a retried job links the board that exists rather
+than creating a second one — GitHub will happily create any number of identically titled
+projects.
+
+Students can also keep boards on their own accounts for personal planning, which is what
+the link on their assignment page offers; `github.com/projects` is a 404, so it has to
+carry their login.
 
 [link-doc]: https://docs.github.com/en/issues/planning-and-tracking-with-projects/managing-your-project/adding-your-project-to-a-repository
 

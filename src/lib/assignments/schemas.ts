@@ -61,6 +61,7 @@ export const createAssignmentSchema = z.object({
   lockOnDeadline: z.coerce.boolean().default(false),
   feedbackPrEnabled: z.coerce.boolean().default(false),
   autogradeEnabled: z.coerce.boolean().default(false),
+  projectBoardEnabled: z.coerce.boolean().default(false),
 
   maxTeams: z.coerce.number().int().min(1).max(500).optional(),
   maxTeamSize: z.coerce.number().int().min(1).max(50).optional(),

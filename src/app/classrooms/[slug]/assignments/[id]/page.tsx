@@ -164,6 +164,7 @@ async function StaffView({
         htmlUrl: true,
         failureReason: true,
         invitationId: true,
+        projectUrl: true,
         feedbackPrNumber: true,
         acceptedAt: true,
         lastPushedAt: true,
@@ -226,6 +227,7 @@ async function StaffView({
         htmlUrl: r.htmlUrl,
         failureReason: r.failureReason,
         pendingInvitation: r.invitationId !== null,
+        projectUrl: r.projectUrl,
         feedbackPrNumber: r.feedbackPrNumber,
         who: r.team ? `Team ${r.team.name}` : (r.user?.name ?? r.user?.githubLogin ?? 'Unknown'),
         githubLogin: r.user?.githubLogin ?? null,
@@ -349,6 +351,7 @@ async function StudentView({
         failureReason: true,
         invitationId: true,
         feedbackPrNumber: true,
+        projectUrl: true,
       },
     }),
     db.rosterEntry.findFirst({
@@ -372,6 +375,7 @@ async function StudentView({
               failureReason: repo.failureReason,
               pendingInvitation: repo.invitationId !== null,
               feedbackPrNumber: repo.feedbackPrNumber,
+              projectUrl: repo.projectUrl,
             }
           : null
       }

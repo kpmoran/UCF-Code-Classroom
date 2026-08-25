@@ -12,6 +12,11 @@ import {
   generateRepoFromTemplate,
   listOrgRepoNames,
 } from '@/lib/github/operations/repos'
+import {
+  createLinkedProjectBoard,
+  describeBoardFailure,
+  repositoryNodeId,
+} from '@/lib/github/operations/projects'
 import { buildRepoName, dedupeRepoName } from '@/lib/github/repoName'
 
 import type { ProvisionIndividualRepoJob } from './queue'
@@ -44,8 +49,10 @@ export async function provisionIndividualRepo(
         select: {
           id: true,
           repoPrefix: true,
+          title: true,
           templateOwner: true,
           templateRepo: true,
+          projectBoardEnabled: true,
           visibility: true,
           studentPermission: true,
           feedbackPrEnabled: true,
@@ -71,6 +78,7 @@ export async function provisionIndividualRepo(
         },
       },
       user: { select: { id: true, githubLogin: true } },
+      projectUrl: true,
     },
   })
 
@@ -102,6 +110,7 @@ export async function provisionIndividualRepo(
   })
 
   let autogradeWarning: string | null = null
+  let boardWarning: string | null = null
 
   try {
     // 1. Decide the repository name, once, and remember it.
@@ -171,6 +180,42 @@ export async function provisionIndividualRepo(
     })
 
 
+    /*
+     * Project board, when the assignment asks for one.
+     *
+     * Owned by the organization, not the student: GitHub only links a project to a
+     * repository owned by the same account, so a board on the student's own account
+     * could never attach here. Skipped when a board is already recorded, because
+     * GitHub will cheerfully create a second project with the same title.
+     *
+     * Not fatal. The student has a working repository either way, and a classroom
+     * whose App has not been granted `Projects: write` should not fail every
+     * provisioning job over a planning aid.
+     */
+    if (assignment.projectBoardEnabled && !repo.projectUrl) {
+      try {
+        const repoNodeId = await repositoryNodeId(installationId, org, repoName)
+        const board = await createLinkedProjectBoard({
+          installationId,
+          org,
+          repoNodeId,
+          title: `${assignment.title} — ${user.githubLogin}`,
+        })
+        await db.assignmentRepo.update({
+          where: { id: repo.id },
+          data: { projectUrl: board.url, projectNumber: board.number },
+        })
+        console.log(`[jobs] project board ${board.url} linked to ${created.fullName}`)
+      } catch (error) {
+        // Both forms checked: GitHubDomainError rewrites some messages, and the
+        // permission text can arrive in either one.
+        const raw = (error as Error).message
+        const message = error instanceof GitHubDomainError ? error.userMessage : raw
+        boardWarning = describeBoardFailure(`${message} ${raw}`)
+        console.warn(`[jobs] project board failed for ${created.fullName}: ${message}`)
+      }
+    }
+
     // Autograding workflow. Written after the repository exists and before the
     // feedback PR, so the injected commits are part of the starting state rather
     // than appearing as student work in the feedback diff.
@@ -232,9 +277,19 @@ export async function provisionIndividualRepo(
 
     await db.assignmentRepo.update({
       where: { id: repo.id },
-      // READY with a note: the repository works, but the instructor needs to know
-      // autograding will not run until the underlying problem is fixed.
-      data: { status: RepoStatus.READY, failureReason: autogradeWarning },
+      /*
+       * READY with a note: the repository works, but the instructor needs to know
+       * that autograding will not run, or that no board was created, until the
+       * underlying problem is fixed.
+       *
+       * Both warnings are joined rather than one overwriting the other — a missing
+       * `Projects: write` permission and a broken autograding workflow have different
+       * fixes, and seeing only one of them sends you to fix the wrong thing.
+       */
+      data: {
+        status: RepoStatus.READY,
+        failureReason: [autogradeWarning, boardWarning].filter(Boolean).join(' ') || null,
+      },
     })
   } catch (error) {
     if (error instanceof GitHubDomainError) {

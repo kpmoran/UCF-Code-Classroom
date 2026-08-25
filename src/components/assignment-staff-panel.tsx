@@ -26,6 +26,7 @@ type RepoRow = {
   failureReason: string | null
   pendingInvitation: boolean
   feedbackPrNumber: number | null
+  projectUrl: string | null
   who: string
   githubLogin: string | null
   acceptedAt: string
@@ -309,6 +310,16 @@ export function AssignmentStaffPanel({
                           className="block text-xs text-accent hover:underline"
                         >
                           Feedback #{r.feedbackPrNumber}
+                        </a>
+                      ) : null}
+                      {r.projectUrl ? (
+                        <a
+                          href={r.projectUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block text-xs text-accent hover:underline"
+                        >
+                          Project board
                         </a>
                       ) : null}
                     </Td>

@@ -15,6 +15,7 @@ type RepoState = {
   failureReason: string | null
   pendingInvitation: boolean
   feedbackPrNumber: number | null
+  projectUrl: string | null
 }
 
 /**
@@ -186,6 +187,21 @@ export function AssignmentStudentPanel({
               * An earlier version of this told students to create their own and link it,
               * which is exactly the dead end the rule above produces.
               */}
+            {repo.projectUrl ? (
+              <p className="text-xs text-muted">
+                Your instructor set up a{' '}
+                <a
+                  href={repo.projectUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  project board
+                </a>{' '}
+                for this assignment, linked to this repository.
+              </p>
+            ) : null}
+
             <details className="text-xs text-muted">
               <summary className="cursor-pointer">Planning your work?</summary>
               <p className="mt-2">

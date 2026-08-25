@@ -325,6 +325,11 @@ model Assignment {
 
   feedbackPrEnabled Boolean @default(false)
   autogradeEnabled  Boolean @default(false)
+  // Creates one organization-owned project board per student (or per team) and
+  // links it to their repository. Organization-owned because GitHub only lets a
+  // repository link projects owned by the account that owns the repository, so a
+  // student's personal board can never attach to one of these.
+  projectBoardEnabled Boolean @default(false)
 
   // Group-assignment settings; null for INDIVIDUAL.
   maxTeams       Int?
@@ -461,6 +466,12 @@ model AssignmentRepo {
   // Manual grade override, used when autograding is off or disputed.
   manualScore Int?
   manualScoreNote String? @db.Text
+
+  // The linked project board, remembered so a retried provisioning job attaches the
+  // existing board rather than creating a second one. GitHub is happy to create any
+  // number of identically titled projects.
+  projectUrl    String?
+  projectNumber Int?
 
   acceptedAt   DateTime @default(now())
   lastPushedAt DateTime?

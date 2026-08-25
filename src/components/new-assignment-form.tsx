@@ -259,6 +259,19 @@ export function NewAssignmentForm({
             </span>
           </label>
 
+          <label className="flex items-start gap-2 text-sm cursor-pointer">
+            <input type="checkbox" name="projectBoardEnabled" className="mt-0.5" />
+            <span>
+              Create a project board for each {type === 'GROUP' ? 'team' : 'student'}
+              <span className="block text-xs text-muted">
+                Owned by <span className="font-mono">{orgLogin}</span> and linked to their
+                repository. It has to be organization-owned: GitHub only links a board to a
+                repository owned by the same account, so a student cannot attach one of
+                their own. Needs the “Projects: write” permission on the app.
+              </span>
+            </span>
+          </label>
+
           <hr className="border-border" />
 
           <label className="flex items-start gap-2 text-sm cursor-pointer">
