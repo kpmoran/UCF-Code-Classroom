@@ -18,12 +18,19 @@ export type ProjectBoardActionResult<T = void> =
  * generating repositories. Both actions here queue work and return how much.
  */
 
-/** Queue a board for every repository that is ready and does not have one. */
-async function queueMissingBoards(assignmentId: string): Promise<number> {
+/**
+ * Queue board work for every repository that can take one.
+ *
+ * Deliberately not limited to repositories without a board. The job creates a board
+ * only when one is missing, but it *always* re-grants access — and access is the part
+ * that goes wrong, because a board created before that step existed is invisible to
+ * everyone and reads as a 404. Including boards that already exist is what makes this
+ * a repair rather than only a backfill.
+ */
+async function queueBoardWork(assignmentId: string): Promise<number> {
   const repos = await db.assignmentRepo.findMany({
     where: {
       assignmentId,
-      projectUrl: null,
       // A repository that does not exist yet cannot have a board linked to it; the
       // provisioning job queues one itself when it finishes.
       fullName: { not: null },
@@ -36,7 +43,9 @@ async function queueMissingBoards(assignmentId: string): Promise<number> {
     await enqueue(
       QUEUES.createProjectBoard,
       { assignmentRepoId: repo.id },
-      { singletonKey: `board:${repo.id}` },
+      // No singleton key: a repair has to run even though a create for the same
+      // repository already completed, and pg-boss would otherwise collapse them.
+      {},
     )
   }
   return repos.length
@@ -71,7 +80,7 @@ export async function setProjectBoardEnabled(
     data: { projectBoardEnabled: enabled },
   })
 
-  const queued = enabled ? await queueMissingBoards(assignmentId) : 0
+  const queued = enabled ? await queueBoardWork(assignmentId) : 0
 
   await db.auditLog.create({
     data: {
@@ -111,7 +120,7 @@ export async function createMissingProjectBoards(
     return { ok: false, error: 'Project boards are not enabled for this assignment.' }
   }
 
-  const queued = await queueMissingBoards(assignmentId)
+  const queued = await queueBoardWork(assignmentId)
 
   await db.auditLog.create({
     data: {

@@ -878,6 +878,24 @@ repositories that have a board, ones that are ready and do not, and ones with no
 repository yet. Only the middle column needs anything from you; the last is handled by
 provisioning when those repositories appear.
 
+### A board nobody can open
+
+Creating a board is only half of it. A Projects v2 board owned by an organization is
+private, and one created through an installation token has the **App as its only
+collaborator** — so until people are added, every human gets a 404, including the
+organization's owners. GitHub answers 404 rather than 403 for anything you cannot see,
+which makes a board that exists look like one that was never created.
+
+So the job grants access as a second step: the student (or every member of the team)
+as **WRITER**, and the classroom's instructors as **ADMIN**. Students get WRITER rather
+than ADMIN deliberately — enough to add, move and close items, not enough to delete the
+board or change who can see it.
+
+Both steps are idempotent, and the panel's button stays available even when no board is
+missing, labelled **Repair board access**. That is not decoration: it is the only way to
+fix boards created before this step existed, which are indistinguishable from missing
+ones until you look in the database.
+
 Turning boards *off* leaves existing ones alone. They may already hold a student's
 planning, and deleting that to honour a checkbox would be the wrong reading of it.
 

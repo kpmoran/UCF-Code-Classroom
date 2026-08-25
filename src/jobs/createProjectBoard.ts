@@ -1,26 +1,33 @@
 import { db } from '@/lib/db'
 import { GitHubDomainError } from '@/lib/github/errors'
 import {
+  type BoardCollaborator,
   createLinkedProjectBoard,
   describeBoardFailure,
+  projectNodeIdByNumber,
   repositoryNodeId,
+  setProjectCollaborators,
+  userNodeIds,
 } from '@/lib/github/operations/projects'
 
 import type { CreateProjectBoardJob } from './queue'
 
 /**
- * Create the project board for one assignment repository, and link it.
+ * Create an assignment repository's project board, and give people access to it.
  *
- * A job rather than part of provisioning, for the same reason feedback pull requests
- * are: it is a GitHub write per student, competing for the same 80-per-minute
- * secondary limit as repository creation, and a whole class arriving at once would
- * otherwise push provisioning over the edge. It also makes the board recoverable —
- * an assignment whose repositories already exist, or which had boards switched on
- * afterwards, is one enqueue per repository away from being correct.
+ * Two steps, and the second is not optional. A Projects v2 board owned by an
+ * organization is private, and one created through an installation token has the App
+ * as its only collaborator — so until people are added, *every* human gets a 404,
+ * including the organization's owners. GitHub answers 404 rather than 403 for things
+ * you cannot see, which makes a board that exists look like one that was never
+ * created. That is exactly how this shipped the first time.
  *
- * Boards are owned by the organization, never by the student. GitHub only lists
- * projects owned by the same account that owns the repository, so a student's own
- * board can never be linked to an assignment repository.
+ * Both steps are idempotent, so re-running is the repair path: a board recorded
+ * without collaborators gets them, and a board that already has them is unchanged.
+ *
+ * A job rather than part of provisioning, because it is a GitHub write per repository
+ * competing for the same 80-per-minute budget as generating the repositories
+ * themselves.
  */
 export async function createProjectBoard(job: CreateProjectBoardJob): Promise<void> {
   const repo = await db.assignmentRepo.findUnique({
@@ -29,61 +36,72 @@ export async function createProjectBoard(job: CreateProjectBoardJob): Promise<vo
       id: true,
       fullName: true,
       projectUrl: true,
+      projectNumber: true,
       failureReason: true,
       user: { select: { githubLogin: true, name: true } },
-      team: { select: { name: true } },
+      team: { select: { name: true, members: { select: { user: { select: { githubLogin: true } } } } } },
       assignment: {
         select: {
           title: true,
           projectBoardEnabled: true,
+          classroomId: true,
           classroom: { select: { githubOrgLogin: true, installationId: true } },
         },
       },
     },
   })
 
-  // Deleted, already has one, or the assignment no longer wants boards. All three are
-  // ordinary outcomes for a job that may have been queued minutes ago.
-  if (!repo || repo.projectUrl || !repo.assignment.projectBoardEnabled) return
-  if (!repo.fullName) return
+  if (!repo || !repo.assignment.projectBoardEnabled || !repo.fullName) return
 
   const org = repo.assignment.classroom.githubOrgLogin
   const installationId = repo.assignment.classroom.installationId
   const repoName = repo.fullName.split('/')[1]
-
-  // The team's name for group work, the student's login otherwise — the same thing
-  // that names the repository, so a board is findable from either direction.
   const who = repo.team?.name ?? repo.user?.githubLogin ?? repo.user?.name ?? repoName
 
   try {
-    const repoNodeId = await repositoryNodeId(installationId, org, repoName)
-    const board = await createLinkedProjectBoard({
-      installationId,
-      org,
-      repoNodeId,
-      title: `${repo.assignment.title} — ${who}`,
-    })
+    // 1. The board, unless one is already recorded. GitHub will happily create a
+    //    second project with the same title, so this must not be retried blindly.
+    let projectNumber = repo.projectNumber
+    if (!repo.projectUrl) {
+      const repoNodeId = await repositoryNodeId(installationId, org, repoName)
+      const board = await createLinkedProjectBoard({
+        installationId,
+        org,
+        repoNodeId,
+        title: `${repo.assignment.title} — ${who}`,
+      })
+      projectNumber = board.number
+      await db.assignmentRepo.update({
+        where: { id: repo.id },
+        data: { projectUrl: board.url, projectNumber: board.number },
+      })
+      console.log(`[jobs] project board ${board.url} linked to ${repo.fullName}`)
+    }
 
-    await db.assignmentRepo.update({
-      where: { id: repo.id },
-      data: {
-        projectUrl: board.url,
-        projectNumber: board.number,
-        // Clear a previous board failure; leave any other note alone, because the
-        // autograding warning lives in this column too and is not ours to discard.
-        failureReason: repo.failureReason?.includes('project board')
-          ? null
-          : repo.failureReason,
-      },
-    })
-    console.log(`[jobs] project board ${board.url} linked to ${repo.fullName}`)
+    // 2. Access. Runs whether or not the board was just created, which is what makes
+    //    this the repair path for boards that predate this step.
+    if (projectNumber !== null) {
+      await shareBoard({
+        installationId,
+        org,
+        projectNumber,
+        classroomId: repo.assignment.classroomId,
+        studentLogins: repo.team
+          ? repo.team.members.map((m) => m.user.githubLogin).filter((l): l is string => Boolean(l))
+          : [repo.user?.githubLogin].filter((l): l is string => Boolean(l)),
+      })
+    }
+
+    // Clear a previous board complaint; leave anything else, since the autograding
+    // warning shares this column and is not ours to discard.
+    if (repo.failureReason?.includes('project board')) {
+      await db.assignmentRepo.update({ where: { id: repo.id }, data: { failureReason: null } })
+    }
   } catch (error) {
     const raw = (error as Error).message
     const message = error instanceof GitHubDomainError ? error.userMessage : raw
     const note = describeBoardFailure(`${message} ${raw}`)
 
-    // Recorded rather than thrown. The repository works; a missing board is a gap the
-    // instructor can act on, not a reason to mark provisioning failed.
     await db.assignmentRepo.update({
       where: { id: repo.id },
       data: {
@@ -94,4 +112,49 @@ export async function createProjectBoard(job: CreateProjectBoardJob): Promise<vo
     })
     console.warn(`[jobs] project board failed for ${repo.fullName}: ${raw}`)
   }
+}
+
+/**
+ * Share a board with the people who need it: the student (or the whole team) so they
+ * can plan in it, and the classroom's instructors so they can see it.
+ *
+ * Students get WRITER rather than ADMIN — enough to add, move and close items, not
+ * enough to delete the board or change who can see it.
+ */
+async function shareBoard(input: {
+  installationId: bigint
+  org: string
+  projectNumber: number
+  classroomId: string
+  studentLogins: readonly string[]
+}): Promise<void> {
+  const { installationId, org, projectNumber, classroomId, studentLogins } = input
+
+  const projectId = await projectNodeIdByNumber(installationId, org, projectNumber)
+  if (!projectId) return
+
+  const instructors = await db.classroomMember.findMany({
+    where: { classroomId, role: 'INSTRUCTOR' },
+    select: { user: { select: { githubLogin: true } } },
+  })
+  const instructorLogins = instructors
+    .map((m) => m.user.githubLogin)
+    .filter((l): l is string => Boolean(l))
+
+  const ids = await userNodeIds(installationId, [...studentLogins, ...instructorLogins])
+
+  const collaborators: BoardCollaborator[] = []
+  for (const login of instructorLogins) {
+    const id = ids.get(login.toLowerCase())
+    if (id) collaborators.push({ userId: id, role: 'ADMIN' })
+  }
+  for (const login of studentLogins) {
+    const id = ids.get(login.toLowerCase())
+    // An instructor who is also enrolled keeps the higher role.
+    if (id && !collaborators.some((c) => c.userId === id)) {
+      collaborators.push({ userId: id, role: 'WRITER' })
+    }
+  }
+
+  await setProjectCollaborators(installationId, projectId, collaborators)
 }

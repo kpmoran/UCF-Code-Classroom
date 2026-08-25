@@ -126,3 +126,89 @@ export function describeBoardFailure(message: string): string {
         'does not take effect until the installation accepts it.'
     : `The project board could not be created: ${message}`
 }
+
+/** The project's node id, from the number we stored when it was created. */
+export async function projectNodeIdByNumber(
+  installationId: bigint,
+  org: string,
+  number: number,
+): Promise<string | null> {
+  const data = await githubRead(`project ${org}#${number}`, installationId, (octokit) =>
+    octokit.graphql<{ organization: { projectV2: { id: string } | null } | null }>(
+      `query($login: String!, $number: Int!) {
+         organization(login: $login) { projectV2(number: $number) { id } }
+       }`,
+      { login: org, number },
+    ),
+  )
+  return data.organization?.projectV2?.id ?? null
+}
+
+/**
+ * GraphQL node ids for a set of logins, in one round trip.
+ *
+ * Aliased rather than queried one at a time because this runs per board, and the
+ * instructors repeat across every board in the assignment. Unknown logins come back
+ * absent rather than throwing: a student who has since deleted their GitHub account
+ * should not stop everyone else's board being shared.
+ */
+export async function userNodeIds(
+  installationId: bigint,
+  logins: readonly string[],
+): Promise<Map<string, string>> {
+  const unique = [...new Set(logins)].filter(Boolean)
+  if (unique.length === 0) return new Map()
+
+  const fields = unique
+    .map((_, i) => `u${i}: user(login: $l${i}) { id login }`)
+    .join('\n')
+  const params = unique.map((_, i) => `$l${i}: String!`).join(', ')
+  const variables = Object.fromEntries(unique.map((login, i) => [`l${i}`, login]))
+
+  const data = await githubRead(`node ids for ${unique.length} user(s)`, installationId, (octokit) =>
+    octokit.graphql<Record<string, { id: string; login: string } | null>>(
+      `query(${params}) { ${fields} }`,
+      variables,
+    ),
+  )
+
+  const out = new Map<string, string>()
+  for (const value of Object.values(data ?? {})) {
+    if (value?.id && value.login) out.set(value.login.toLowerCase(), value.id)
+  }
+  return out
+}
+
+export type BoardCollaborator = { userId: string; role: 'READER' | 'WRITER' | 'ADMIN' }
+
+/**
+ * Give people access to a board.
+ *
+ * Without this a board is created and nobody can open it. A Projects v2 board owned
+ * by an organization is private, and one created through an installation token has
+ * the App as its only collaborator — so every human, including the organization's
+ * owners, gets a 404. GitHub returns 404 rather than 403 for things you cannot see,
+ * which makes it look like the board was never created at all.
+ *
+ * Idempotent: setting the same roles again is a no-op, which is what lets this double
+ * as the repair path for boards created before access was granted.
+ */
+export async function setProjectCollaborators(
+  installationId: bigint,
+  projectId: string,
+  collaborators: readonly BoardCollaborator[],
+): Promise<void> {
+  if (collaborators.length === 0) return
+
+  await githubMutate(`share project ${projectId}`, installationId, (octokit) =>
+    octokit.graphql(
+      `mutation($projectId: ID!, $collaborators: [ProjectV2Collaborator!]!) {
+         updateProjectV2Collaborators(input: {
+           projectId: $projectId,
+           collaborators: $collaborators
+         }) { clientMutationId }
+       }`,
+      { projectId, collaborators },
+    ),
+  )
+}

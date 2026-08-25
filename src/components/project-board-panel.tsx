@@ -107,6 +107,9 @@ export function ProjectBoardPanel({
           </div>
 
           <p className="text-sm text-muted">
+            If a board link gives a 404, use “Repair board access”: a board is
+            private until the people who need it are added, and GitHub shows
+            what you cannot see as missing rather than as forbidden.{" "}
             {notProvisioned > 0
               ? "Repositories that do not exist yet get a board when they are provisioned, so the last column needs nothing from you."
               : "Every repository that exists can have a board."}
@@ -138,11 +141,13 @@ export function ProjectBoardPanel({
           </Button>
 
           {/*
-           * Shown only when there is something to do. Turning the setting on already
-           * queues the missing ones, so this is for the case where that ran before the
-           * App had permission, or a student accepted while it was off.
+           * Offered whenever boards are on, not only when some are missing. Creating
+           * is half the job; the other half is granting access, and a board created
+           * before that step existed is invisible to everyone and reads as a 404.
+           * Hiding this once every repository had a board would hide the only way to
+           * fix exactly that.
            */}
-          {enabled && missing > 0 ? (
+          {enabled ? (
             <Button
               type="button"
               variant="accent"
@@ -150,8 +155,10 @@ export function ProjectBoardPanel({
               onClick={() => run(createMissingProjectBoards)}
             >
               {pending
-                ? "Creating…"
-                : `Create ${missing} missing board${missing === 1 ? "" : "s"}`}
+                ? "Working…"
+                : missing > 0
+                  ? `Create ${missing} missing board${missing === 1 ? "" : "s"}`
+                  : "Repair board access"}
             </Button>
           ) : null}
         </CardFooter>
