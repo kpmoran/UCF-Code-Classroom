@@ -833,16 +833,28 @@ individual assignments freely for the rest of it.
 
 ## Project boards
 
-A student's assignment page links them to **their own** GitHub projects tab, not to the
-repository's. That is not a stylistic choice: GitHub sunset repository-level project
-boards on 23 August 2024, and the classic REST API followed on 1 April 2025. A board is
-now owned by a user or an organization and *linked* to a repository, so a repository's
-Projects tab only offers "Link a project" — pointing a student there to create one sends
-them somewhere they cannot.
+Two GitHub rules govern this, and each one on its own is misleading.
 
-There is no URL that means "the signed-in user's projects": `github.com/projects` is a
-404, so the link has to carry the login, which is why it is rendered per student rather
-than being a constant.
+**Repository-level boards are gone.** GitHub sunset them on 23 August 2024; the classic
+REST API followed on 1 April 2025, which is why those endpoints answer 404 rather than
+403. A board is owned by an account and *linked* to a repository afterwards.
+
+**Linking is ownership-bound.** [GitHub's documentation][link-doc] is explicit: "You can
+only list projects that are owned by the same user or organization that owns the
+repository." Assignment repositories belong to the classroom's organization, so a board
+on a student's personal account can *never* be attached to one. Only a board owned by
+that organization can be.
+
+The student-facing copy says exactly that, because the obvious-sounding advice — "make a
+board and link your repository to it" — is a dead end that looks like it should work. An
+earlier version of this page gave that advice; it was wrong.
+
+If you want boards attached to assignment repositories, create them in the organization
+and link the repositories from there. Students can still keep boards on their own
+accounts for personal planning, which is what the link on their assignment page offers;
+`github.com/projects` is a 404, so it has to carry their login.
+
+[link-doc]: https://docs.github.com/en/issues/planning-and-tracking-with-projects/managing-your-project/adding-your-project-to-a-repository
 
 Nothing here provisions boards. Doing so would need a `Projects: write` permission on the
 GitHub App, which every installed organization has to accept before it takes effect, plus

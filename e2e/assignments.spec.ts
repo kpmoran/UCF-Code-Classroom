@@ -182,7 +182,16 @@ test('a student accepts and the worker provisions a real repository', async ({
    * one.
    */
   await page.getByText('Planning your work?').click()
-  await expect(page.getByRole('link', { name: 'your projects tab' })).toHaveAttribute(
+  /*
+   * Names the constraint rather than telling them to link a board they cannot link:
+   * GitHub only lists projects owned by the same account that owns the repository.
+   * Scoped to the disclosure, because the organization name appears several times
+   * elsewhere on this page.
+   */
+  const planning = page.locator('details', { hasText: 'Planning your work?' })
+  await expect(planning).toContainText('cannot be attached to it')
+  await expect(planning).toContainText(ORG)
+  await expect(planning.getByRole('link', { name: 'boards on your own account' })).toHaveAttribute(
     'href',
     `https://github.com/${VERIFY_USER}?tab=projects`,
   )

@@ -125,6 +125,7 @@ export default async function AssignmentPage(
             assignmentId={assignment.id}
             userId={user.id}
             githubLogin={user.githubLogin}
+            orgLogin={classroom.githubOrgLogin}
             classroomId={classroom.id}
           />
         )}
@@ -329,11 +330,13 @@ async function StudentView({
   assignmentId,
   userId,
   githubLogin,
+  orgLogin,
   classroomId,
 }: {
   assignmentId: string
   userId: string
   githubLogin: string | null
+  orgLogin: string
   classroomId: string
 }) {
   const [repo, rosterEntry] = await Promise.all([
@@ -359,6 +362,7 @@ async function StudentView({
       assignmentId={assignmentId}
       hasRosterEntry={rosterEntry !== null}
       githubLogin={githubLogin}
+      orgLogin={orgLogin}
       repo={
         repo
           ? {

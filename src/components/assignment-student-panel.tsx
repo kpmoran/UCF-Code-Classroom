@@ -28,11 +28,13 @@ export function AssignmentStudentPanel({
   assignmentId,
   hasRosterEntry,
   githubLogin,
+  orgLogin,
   repo,
 }: {
   assignmentId: string
   hasRosterEntry: boolean
   githubLogin: string | null
+  orgLogin: string
   repo: RepoState | null
 }) {
   const router = useRouter()
@@ -170,30 +172,45 @@ export function AssignmentStudentPanel({
             </details>
 
             {/*
-              * Pointed at the student's own account, not at the repository.
-              * GitHub retired repository-level project boards in August 2024, so the
-              * repository's Projects tab can only *link* a board that already exists —
-              * and a board has to be owned by a user or an organization. Theirs is the
-              * one they can actually create, so that is where this goes.
+              * Two GitHub rules collide here, and getting either wrong sends a student
+              * somewhere that cannot work.
+              *
+              * Repository-level boards were retired in August 2024, so a board is owned
+              * by a user or an organization and linked to a repository afterwards. And
+              * linking is ownership-bound: "You can only list projects that are owned by
+              * the same user or organization that owns the repository." This repository
+              * belongs to the classroom's organization, so a board on the student's own
+              * account can never be linked to it — only the instructor can make one that
+              * attaches here.
+              *
+              * An earlier version of this told students to create their own and link it,
+              * which is exactly the dead end the rule above produces.
               */}
-            {githubLogin ? (
-              <details className="text-xs text-muted">
-                <summary className="cursor-pointer">Planning your work?</summary>
+            <details className="text-xs text-muted">
+              <summary className="cursor-pointer">Planning your work?</summary>
+              <p className="mt-2">
+                GitHub project boards are owned by an account, not by a repository, and
+                can only be linked to repositories owned by that same account. This
+                repository belongs to{' '}
+                <span className="font-mono">{orgLogin}</span>, so a board on your own
+                account cannot be attached to it — ask your instructor if the course
+                uses one.
+              </p>
+              {githubLogin ? (
                 <p className="mt-2">
-                  GitHub project boards belong to your account rather than to a
-                  repository. Create one on{' '}
+                  You can still keep{' '}
                   <a
                     href={`https://github.com/${githubLogin}?tab=projects`}
                     target="_blank"
                     rel="noreferrer"
                     className="underline"
                   >
-                    your projects tab
-                  </a>
-                  , then link this repository to it from the board.
+                    boards on your own account
+                  </a>{' '}
+                  for personal planning.
                 </p>
-              </details>
-            ) : null}
+              ) : null}
+            </details>
           </>
         ) : null}
       </CardContent>
