@@ -14,6 +14,7 @@ import {
   retryFailedRepos,
   setAssignmentPublished,
 } from '@/lib/assignments/actions'
+import { recheckInvitations } from '@/lib/invitations/actions'
 import { removeFromAssignment } from '@/lib/members/actions'
 
 type RepoAction = 'KEEP' | 'ARCHIVE' | 'DELETE'
@@ -66,6 +67,9 @@ export function AssignmentStaffPanel({
   repos: RepoRow[]
 }) {
   const router = useRouter()
+  const pendingInvitations = repos.filter(
+    (r) => r.pendingInvitation && r.status === 'READY',
+  ).length
   const [query, setQuery] = useState('')
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -206,6 +210,17 @@ export function AssignmentStaffPanel({
             {counts.FAILED > 0 ? (
               <Button variant="outline" disabled={pending} onClick={() => run(retryFailedRepos)}>
                 Retry {counts.FAILED} failed
+              </Button>
+            ) : null}
+
+            {/*
+              * Only when something is outstanding. Accepting an invitation happens on
+              * GitHub and notifies this app of nothing, so a row can claim an
+              * invitation is pending long after it was taken up — this asks.
+              */}
+            {pendingInvitations > 0 ? (
+              <Button variant="outline" disabled={pending} onClick={() => run(recheckInvitations)}>
+                Re-check {pendingInvitations} invitation{pendingInvitations === 1 ? '' : 's'}
               </Button>
             ) : null}
 

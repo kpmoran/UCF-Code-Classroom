@@ -15,6 +15,7 @@ import { requireClassroomRole } from '@/lib/auth/dal'
 import { roleSatisfies } from '@/lib/auth/roles'
 import { callsPerRepo } from '@/lib/assignments/estimate'
 import { db } from '@/lib/db'
+import { reconcileInvitations } from '@/lib/invitations/reconcile'
 import { toDateTimeLocal } from '@/lib/deadlines/format'
 import { canCreateTeam, describeConstraints } from '@/lib/teams/rules'
 import { estimateProvisioningMs, formatDuration, getBudgetStatus } from '@/lib/github/rateLimiter'
@@ -359,6 +360,7 @@ async function StudentView({
         fullName: true,
         htmlUrl: true,
         failureReason: true,
+        id: true,
         invitationId: true,
         feedbackPrNumber: true,
         projectUrl: true,
@@ -369,6 +371,20 @@ async function StudentView({
       select: { id: true },
     }),
   ])
+
+  /*
+   * Ask GitHub whether an outstanding invitation has been accepted, because nothing
+   * else will: acceptance happens on GitHub and notifies this app of nothing, so the
+   * row would otherwise tell a student to accept an invitation they already accepted.
+   *
+   * One read, and only while an invitation is genuinely outstanding — once it clears,
+   * this never runs again for that repository.
+   */
+  let pendingInvitation = repo?.invitationId !== null && repo?.invitationId !== undefined
+  if (repo && pendingInvitation) {
+    const { accepted } = await reconcileInvitations(assignmentId, { assignmentRepoId: repo.id })
+    if (accepted > 0) pendingInvitation = false
+  }
 
   return (
     <AssignmentStudentPanel
@@ -383,7 +399,7 @@ async function StudentView({
               fullName: repo.fullName,
               htmlUrl: repo.htmlUrl,
               failureReason: repo.failureReason,
-              pendingInvitation: repo.invitationId !== null,
+              pendingInvitation,
               feedbackPrNumber: repo.feedbackPrNumber,
               projectUrl: repo.projectUrl,
             }

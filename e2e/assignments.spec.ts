@@ -181,6 +181,31 @@ test('a student accepts and the worker provisions a real repository', async ({
    * this at the repository's Projects tab would send them somewhere they cannot create
    * one.
    */
+  /*
+   * A stale invitation must not outlive its acceptance.
+   *
+   * Accepting happens on GitHub and notifies this app of nothing, so the row keeps its
+   * invitation id and the page goes on telling a student to accept something they
+   * already accepted. Simulated by putting the id back — from the app's side an
+   * accepted invitation and a pending one are the same row, which is the whole
+   * problem — and the page has to resolve it by asking GitHub.
+   */
+  await db.assignmentRepo.update({
+    where: { id: row.id },
+    data: { invitationId: BigInt(999_000_111) },
+  })
+  await page.reload()
+  await expect(page.getByText(/Accept your GitHub invitation/)).toHaveCount(0)
+  await expect
+    .poll(async () => {
+      const after = await db.assignmentRepo.findUniqueOrThrow({
+        where: { id: row.id },
+        select: { invitationId: true },
+      })
+      return after.invitationId
+    })
+    .toBeNull()
+
   await page.getByText('Planning your work?').click()
   /*
    * Names the constraint rather than telling them to link a board they cannot link:

@@ -910,6 +910,31 @@ GitHub App, which every installed organization has to accept before it takes eff
 GraphQL calls competing for the same rate budget as repository creation — a real cost for
 something a student can do in two clicks.
 
+## Invitations, and knowing when they are accepted
+
+Adding a student to a repository they cannot already see produces a GitHub *invitation*,
+and the app records its id. Accepting happens entirely on GitHub, which tells the app
+nothing — the App subscribes to no event that would say so — so the row kept its
+invitation id forever and both pages went on saying "Accept your GitHub invitation" to
+students who already had.
+
+The fix asks GitHub rather than waiting to be told, in two places:
+
+* A student's own assignment page reconciles **their** invitation when one is
+  outstanding. One read, and only while it is genuinely outstanding: once cleared it
+  never runs again for that repository.
+* The instructor's panel offers **Re-check N invitations** when any are outstanding,
+  so a whole assignment can be brought up to date without waiting for students to visit.
+
+It asks whether the student is a *collaborator*, not whether the invitation is still
+listed. The two differ in the case that matters: a declined or expired invitation also
+vanishes from the pending list, and reading that as acceptance would replace a wrong
+"please accept" with a wrong "all good". Reads only, so none of this competes with the
+content-creating rate budget.
+
+Note that a student who is already a member of the organization never gets an invitation
+at all — they are added directly, and their row has no invitation id from the start.
+
 ## Rate limits
 
 GitHub enforces a secondary limit of **80 content-creating requests per minute
