@@ -173,6 +173,19 @@ test('a student accepts and the worker provisions a real repository', async ({
   // Clone instructions are offered.
   await page.getByText('How do I clone this?').click()
   await expect(page.getByText(new RegExp(`git clone .*${repoName}\\.git`))).toBeVisible()
+
+  /*
+   * And a route to a project board. It points at the student's own account, not at
+   * the repository: GitHub retired repository-level boards in August 2024, so a board
+   * has to be owned by a user or an organization and then linked to the repo. Pointing
+   * this at the repository's Projects tab would send them somewhere they cannot create
+   * one.
+   */
+  await page.getByText('Planning your work?').click()
+  await expect(page.getByRole('link', { name: 'your projects tab' })).toHaveAttribute(
+    'href',
+    `https://github.com/${VERIFY_USER}?tab=projects`,
+  )
 })
 
 test('an assignment with no template provisions an empty repository', async ({

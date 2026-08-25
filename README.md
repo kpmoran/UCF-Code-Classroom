@@ -831,6 +831,24 @@ students already registered.
 So the order that works is: share the invite link once at the start of term, then link
 individual assignments freely for the rest of it.
 
+## Project boards
+
+A student's assignment page links them to **their own** GitHub projects tab, not to the
+repository's. That is not a stylistic choice: GitHub sunset repository-level project
+boards on 23 August 2024, and the classic REST API followed on 1 April 2025. A board is
+now owned by a user or an organization and *linked* to a repository, so a repository's
+Projects tab only offers "Link a project" — pointing a student there to create one sends
+them somewhere they cannot.
+
+There is no URL that means "the signed-in user's projects": `github.com/projects` is a
+404, so the link has to carry the login, which is why it is rendered per student rather
+than being a constant.
+
+Nothing here provisions boards. Doing so would need a `Projects: write` permission on the
+GitHub App, which every installed organization has to accept before it takes effect, plus
+GraphQL calls competing for the same rate budget as repository creation — a real cost for
+something a student can do in two clicks.
+
 ## Rate limits
 
 GitHub enforces a secondary limit of **80 content-creating requests per minute

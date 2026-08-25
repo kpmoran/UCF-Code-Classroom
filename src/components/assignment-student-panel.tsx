@@ -27,10 +27,12 @@ type RepoState = {
 export function AssignmentStudentPanel({
   assignmentId,
   hasRosterEntry,
+  githubLogin,
   repo,
 }: {
   assignmentId: string
   hasRosterEntry: boolean
+  githubLogin: string | null
   repo: RepoState | null
 }) {
   const router = useRouter()
@@ -166,6 +168,32 @@ export function AssignmentStudentPanel({
                 git clone {repo.htmlUrl}.git
               </pre>
             </details>
+
+            {/*
+              * Pointed at the student's own account, not at the repository.
+              * GitHub retired repository-level project boards in August 2024, so the
+              * repository's Projects tab can only *link* a board that already exists —
+              * and a board has to be owned by a user or an organization. Theirs is the
+              * one they can actually create, so that is where this goes.
+              */}
+            {githubLogin ? (
+              <details className="text-xs text-muted">
+                <summary className="cursor-pointer">Planning your work?</summary>
+                <p className="mt-2">
+                  GitHub project boards belong to your account rather than to a
+                  repository. Create one on{' '}
+                  <a
+                    href={`https://github.com/${githubLogin}?tab=projects`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    your projects tab
+                  </a>
+                  , then link this repository to it from the board.
+                </p>
+              </details>
+            ) : null}
           </>
         ) : null}
       </CardContent>

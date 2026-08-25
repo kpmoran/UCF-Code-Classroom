@@ -121,7 +121,12 @@ export default async function AssignmentPage(
             classroomId={classroom.id}
           />
         ) : (
-          <StudentView assignmentId={assignment.id} userId={user.id} classroomId={classroom.id} />
+          <StudentView
+            assignmentId={assignment.id}
+            userId={user.id}
+            githubLogin={user.githubLogin}
+            classroomId={classroom.id}
+          />
         )}
       </main>
     </>
@@ -323,10 +328,12 @@ async function StaffTeamSection({
 async function StudentView({
   assignmentId,
   userId,
+  githubLogin,
   classroomId,
 }: {
   assignmentId: string
   userId: string
+  githubLogin: string | null
   classroomId: string
 }) {
   const [repo, rosterEntry] = await Promise.all([
@@ -351,6 +358,7 @@ async function StudentView({
     <AssignmentStudentPanel
       assignmentId={assignmentId}
       hasRosterEntry={rosterEntry !== null}
+      githubLogin={githubLogin}
       repo={
         repo
           ? {
