@@ -195,12 +195,17 @@ async function makeIndividualAssignment(opts: {
 
 describe('enforceDeadlines', () => {
   it('captures the submitted commit without locking when locking is off', async () => {
-    const { repoId, repoName } = await makeIndividualAssignment({
+    const { assignmentId, repoId, repoName } = await makeIndividualAssignment({
       deadline: PAST,
       lockOnDeadline: false,
     })
 
     expect(await isDirectCollaborator(repoName)).toBe(true)
+
+    // The deadline has to fall *after* the template commit for there to be anything
+    // to capture. Provisioning happens now, so a deadline in the past would mean the
+    // repository did not exist yet when it fell — which is the separate case below.
+    await db.assignment.update({ where: { id: assignmentId }, data: { deadline: new Date() } })
 
     const result = await enforceDeadlines()
 
@@ -216,10 +221,12 @@ describe('enforceDeadlines', () => {
   }, 300_000)
 
   it('locks write access down to read when the deadline has passed', async () => {
-    const { repoId, repoName } = await makeIndividualAssignment({
+    const { assignmentId, repoId, repoName } = await makeIndividualAssignment({
       deadline: PAST,
       lockOnDeadline: true,
     })
+
+    await db.assignment.update({ where: { id: assignmentId }, data: { deadline: new Date() } })
 
     const result = await enforceDeadlines()
 
@@ -232,6 +239,29 @@ describe('enforceDeadlines', () => {
     expect(result.failed).toBe(0)
     expect(await isDirectCollaborator(repoName)).toBe(true)
     console.log(`\n  locked: lockedAt=${row.lockedAt?.toISOString()} failed=${result.failed}`)
+  }, 300_000)
+
+  it('records nothing submitted when every commit post-dates the deadline', async () => {
+    // The repository is provisioned now against a deadline in the past, so its only
+    // commit — the template's — is late. Reading the head would have captured that
+    // commit and reported it as the submission; asking GitHub for the commit as of
+    // the deadline correctly finds none.
+    //
+    // The empty string is the sweep's way of saying "looked, found nothing", which
+    // has to stay distinguishable from null's "have not looked yet", or the sweep
+    // would retry this repository forever.
+    const { repoId } = await makeIndividualAssignment({
+      deadline: PAST,
+      lockOnDeadline: false,
+    })
+
+    const result = await enforceDeadlines()
+
+    const row = await db.assignmentRepo.findUniqueOrThrow({ where: { id: repoId } })
+    expect(row.deadlineSha).toBe('')
+    expect(result.captured).toBe(1)
+    expect(result.failed).toBe(0)
+    console.log(`\n  nothing by deadline: deadlineSha=${JSON.stringify(row.deadlineSha)}`)
   }, 300_000)
 
   it('does nothing before the deadline', async () => {

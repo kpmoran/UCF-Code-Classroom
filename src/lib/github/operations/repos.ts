@@ -378,3 +378,58 @@ export async function getRepoHead(
     throw toDomainError(error, `get head of repo ${owner}/${repo}`)
   }
 }
+
+/**
+ * The last commit on the default branch at or before `until`.
+ *
+ * Distinct from `getRepoHead`, and the difference decides grades. The deadline
+ * sweep runs every five minutes, so reading the head means a student who pushes
+ * at 23:59:30 against a 23:59 deadline has that push recorded as their submitted
+ * commit — the capture is "whatever was there when we happened to look" rather
+ * than "what existed when the deadline fell". Asking GitHub for the commit as of
+ * the deadline makes the result independent of when the sweep runs, so a late
+ * capture and a punctual one record the same sha.
+ *
+ * `until` is a commit-date filter and commits come back newest first, so one
+ * result is all we need. Returns null when the repository has no commit that old
+ * — an empty repository, or one whose only commits are late.
+ */
+export async function getCommitAsOf(
+  installationId: bigint,
+  owner: string,
+  repo: string,
+  until: Date,
+  branch?: string,
+): Promise<{ sha: string; committedAt: string | null } | null> {
+  try {
+    const ref = branch ?? (await getRepo(installationId, owner, repo))?.defaultBranch ?? 'main'
+    const data = await githubRead(
+      `commit as of ${until.toISOString()} on ${owner}/${repo}`,
+      installationId,
+      (octokit) =>
+        octokit.rest.repos
+          .listCommits({
+            owner,
+            repo,
+            sha: ref,
+            until: until.toISOString(),
+            per_page: 1,
+          })
+          .then((r) => r.data),
+    )
+
+    const commit = data[0]
+    if (!commit) return null
+    return {
+      sha: commit.sha,
+      committedAt: commit.commit.committer?.date ?? commit.commit.author?.date ?? null,
+    }
+  } catch (error) {
+    // Same normal-state handling as getRepoHead: an empty repository has no branch,
+    // and the git endpoints report that as 409 rather than 404.
+    if (error instanceof GitHubDomainError && (error.status === 404 || error.status === 409)) {
+      return null
+    }
+    throw toDomainError(error, `get commit as of deadline for ${owner}/${repo}`)
+  }
+}

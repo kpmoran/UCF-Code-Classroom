@@ -32,6 +32,14 @@ type RepoRow = {
   githubLogin: string | null
   acceptedAt: string
   lastPushedAt: string | null
+  submission: {
+    /** Commit captured at the deadline. '' means nothing was committed by then; null means not captured yet. */
+    sha: string | null
+    late: boolean
+    locked: boolean
+    extended: boolean
+    deadline: string | null
+  }
   autograde: {
     score: number | null
     maxScore: number | null
@@ -290,6 +298,7 @@ export function AssignmentStaffPanel({
                   <Th>Status</Th>
                   <Th>Score</Th>
                   <Th>Last push</Th>
+                  <Th>Submitted</Th>
                   <Th className="text-right">Actions</Th>
                 </tr>
               </thead>
@@ -359,6 +368,9 @@ export function AssignmentStaffPanel({
                             timeStyle: 'short',
                           })
                         : 'no pushes'}
+                    </Td>
+                    <Td className="whitespace-nowrap">
+                      <SubmissionCell submission={r.submission} htmlUrl={r.htmlUrl} />
                     </Td>
                     <Td className="text-right">
                       <Button
@@ -496,6 +508,65 @@ function StatusBadge({ status }: { status: RepoRow['status'] }) {
  * score is still the best available number, but a modified workflow or manifest is
  * something the instructor must know about before recording a grade.
  */
+/**
+ * What this student actually submitted by their deadline.
+ *
+ * The sweep has recorded a commit for every repository past its deadline since
+ * deadlines existed, and until now nothing displayed it — the data was captured
+ * for grading and then only readable in the database.
+ *
+ * Three states worth distinguishing, because they look identical if you collapse
+ * them: no capture yet (the deadline has not passed, or the sweep has not run),
+ * a captured commit, and a capture that found nothing — the sweep records the
+ * empty string for a repository with no commit by the deadline, which means
+ * "graded as not submitted", not "we did not look".
+ */
+function SubmissionCell({
+  submission,
+  htmlUrl,
+}: {
+  submission: RepoRow['submission']
+  htmlUrl: string | null
+}) {
+  const { sha, late, locked, extended } = submission
+
+  if (sha === null) {
+    return (
+      <span className="text-xs text-muted">
+        {submission.deadline ? 'not yet' : '—'}
+      </span>
+    )
+  }
+
+  return (
+    <span className="flex items-center gap-1.5">
+      {sha === '' ? (
+        <Badge tone="danger">nothing by deadline</Badge>
+      ) : htmlUrl ? (
+        // Links to the exact commit that would be graded, so an instructor can read
+        // the submitted state without working out which commit that was.
+        <a
+          href={`${htmlUrl}/commit/${sha}`}
+          target="_blank"
+          rel="noreferrer"
+          className="font-mono text-xs underline underline-offset-2 hover:text-accent"
+          title={`Commit captured at the deadline: ${sha}`}
+        >
+          {sha.slice(0, 7)}
+        </a>
+      ) : (
+        <span className="font-mono text-xs">{sha.slice(0, 7)}</span>
+      )}
+
+      {/* Late is judged on the last push, so it stays true after the fact rather than
+          being recomputed from the current time. */}
+      {late ? <Badge tone="warning">late</Badge> : null}
+      {locked ? <Badge tone="neutral">locked</Badge> : null}
+      {extended ? <Badge tone="info">extended</Badge> : null}
+    </span>
+  )
+}
+
 function ScoreCell({ autograde }: { autograde: RepoRow['autograde'] }) {
   if (!autograde) return <span className="text-xs text-muted">—</span>
 

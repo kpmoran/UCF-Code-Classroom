@@ -1,13 +1,13 @@
 import 'server-only'
 
 import { db } from '@/lib/db'
-import { decideDeadlineAction } from '@/lib/deadlines/resolve'
+import { decideDeadlineAction, effectiveDeadline } from '@/lib/deadlines/resolve'
 import { GitHubDomainError } from '@/lib/github/errors'
 import {
   setCollaboratorPermission,
   toGitHubPermission,
 } from '@/lib/github/operations/collaborators'
-import { getRepoHead } from '@/lib/github/operations/repos'
+import { getCommitAsOf, getRepoHead } from '@/lib/github/operations/repos'
 import { addTeamRepoAccess } from '@/lib/github/operations/teams'
 
 /**
@@ -122,14 +122,40 @@ export async function enforceDeadlines(): Promise<DeadlineSweepResult> {
 
       try {
         if (action.kind === 'capture' || action.kind === 'capture-and-lock') {
-          // An unmetered read: recording the on-time state costs no content budget.
-          const head = await getRepoHead(installationId, org, repoName)
+          /*
+           * As of the deadline, not as of now.
+           *
+           * The sweep runs every five minutes, so reading the head recorded whatever
+           * happened to be there when we looked: a push at 23:59:30 against a 23:59
+           * deadline became the student's submitted commit purely because the sweep
+           * had not run yet. Asking GitHub for the commit as of the deadline makes the
+           * captured sha identical whether the sweep arrives one second or four
+           * minutes late.
+           *
+           * An unmetered read either way: recording the on-time state costs no
+           * content budget.
+           */
+          const deadline = effectiveDeadline({
+            assignmentDeadline: assignment.deadline,
+            extensionDeadline,
+            lockOnDeadline: assignment.lockOnDeadline,
+          })
+          const submitted = deadline
+            ? await getCommitAsOf(installationId, org, repoName, deadline)
+            : null
+
+          // The webhook is what normally maintains lastPushedAt; this fills it in only
+          // when no push has ever been seen, rather than spending a second read on
+          // every repository.
+          const head = repo.lastPushedAt ? null : await getRepoHead(installationId, org, repoName)
+
           await db.assignmentRepo.update({
             where: { id: repo.id },
             data: {
-              // A repository with no commits records the empty string rather than
-              // staying null, so the sweep does not retry it forever.
-              deadlineSha: head?.sha ?? '',
+              // A repository with nothing committed by the deadline records the empty
+              // string rather than staying null, so the sweep does not retry it
+              // forever.
+              deadlineSha: submitted?.sha ?? '',
               ...(head?.committedAt ? { lastPushedAt: new Date(head.committedAt) } : {}),
             },
           })

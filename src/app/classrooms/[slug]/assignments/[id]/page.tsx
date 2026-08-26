@@ -17,6 +17,7 @@ import { callsPerRepo } from '@/lib/assignments/estimate'
 import { db } from '@/lib/db'
 import { reconcileInvitations } from '@/lib/invitations/reconcile'
 import { toDateTimeLocal } from '@/lib/deadlines/format'
+import { effectiveDeadline, isLateSubmission } from '@/lib/deadlines/resolve'
 import { canCreateTeam, describeConstraints } from '@/lib/teams/rules'
 import { estimateProvisioningMs, formatDuration, getBudgetStatus } from '@/lib/github/rateLimiter'
 
@@ -158,13 +159,15 @@ async function StaffView({
     autogradeEnabled: boolean
     repoPrefix: string
     studentPermission: 'PULL' | 'PUSH' | 'MAINTAIN' | 'ADMIN'
+    deadline: Date | null
+    lockOnDeadline: boolean
   }
   classroomSlug: string
   classroomId: string
   orgLogin: string
   installationId: bigint
 }) {
-  const [repos, rosterClaimed, budget] = await Promise.all([
+  const [repos, rosterClaimed, budget, extensions] = await Promise.all([
     db.assignmentRepo.findMany({
       where: { assignmentId: assignment.id },
       select: {
@@ -178,6 +181,10 @@ async function StaffView({
         feedbackPrNumber: true,
         acceptedAt: true,
         lastPushedAt: true,
+        deadlineSha: true,
+        lockedAt: true,
+        userId: true,
+        teamId: true,
         user: { select: { id: true, githubLogin: true, name: true } },
         team: { select: { id: true, name: true } },
         // Newest run only: the table shows current standing, and the full history
@@ -194,7 +201,26 @@ async function StaffView({
       where: { classroomId, removedAt: null, claimedByUserId: { not: null } },
     }),
     getBudgetStatus(installationId),
+    db.extension.findMany({
+      where: { assignmentId: assignment.id },
+      select: { userId: true, teamId: true, newDeadline: true },
+    }),
   ])
+
+  /*
+   * Deadline state per repository, resolved here rather than in the table.
+   *
+   * Lateness depends on the *effective* deadline — an extension overrides the
+   * assignment's — so the answer is per student, not per assignment, and it belongs
+   * next to the pure functions that define it rather than being re-derived in a
+   * client component that would have to be handed the whole extension list.
+   */
+  const extensionByUser = new Map(
+    extensions.filter((e) => e.userId).map((e) => [e.userId as string, e.newDeadline]),
+  )
+  const extensionByTeam = new Map(
+    extensions.filter((e) => e.teamId).map((e) => [e.teamId as string, e.newDeadline]),
+  )
 
   const withoutRepo = Math.max(0, rosterClaimed - repos.filter((r) => r.user).length)
   const perRepo = callsPerRepo({
@@ -244,6 +270,26 @@ async function StaffView({
         githubLogin: r.user?.githubLogin ?? null,
         acceptedAt: r.acceptedAt.toISOString(),
         lastPushedAt: r.lastPushedAt ? r.lastPushedAt.toISOString() : null,
+        submission: (() => {
+          const input = {
+            assignmentDeadline: assignment.deadline,
+            extensionDeadline:
+              (r.userId ? extensionByUser.get(r.userId) : undefined) ??
+              (r.teamId ? extensionByTeam.get(r.teamId) : undefined) ??
+              null,
+            lockOnDeadline: assignment.lockOnDeadline,
+          }
+          const effective = effectiveDeadline(input)
+          return {
+            // '' is the sweep's record of "nothing was committed by the deadline",
+            // which is a different thing from null's "we have not looked yet".
+            sha: r.deadlineSha,
+            late: isLateSubmission(input, { lastPushedAt: r.lastPushedAt }),
+            locked: r.lockedAt !== null,
+            extended: input.extensionDeadline !== null,
+            deadline: effective ? effective.toISOString() : null,
+          }
+        })(),
         autograde: r.autogradeRuns[0]
           ? {
               score: r.autogradeRuns[0].score,
