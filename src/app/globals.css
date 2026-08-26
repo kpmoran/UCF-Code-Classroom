@@ -41,15 +41,29 @@
    */
   color-scheme: light dark;
 
+  /*
+   * Borders carry a contrast requirement, which is easy to miss because they are
+   * not text. WCAG 1.4.11 asks for 3:1 on the visual information that identifies a
+   * component, and the old values were 1.26:1 — the boxes were technically drawn
+   * and practically invisible.
+   *
+   * Chosen against the *subtle* surface rather than the page, since that is the
+   * harder background and where most bordered boxes sit. Deepening
+   * --surface-subtle to separate cards further was tried and rejected: it pushes
+   * the border below 3:1 again, and a visible border does that job better than a
+   * tinted fill.
+   *
+   * `src/app/contrast.test.ts` reads these values and fails if any pair regresses.
+   */
   --background: #ffffff;
   --surface: #ffffff;
   --surface-subtle: #f7f8fa;
   --foreground: #14161a;
   --muted: #5c636e;
-  --border: #e2e5ea;
-  --border-strong: #cbd0d8;
+  --border: #878f9d;
+  --border-strong: #6a7281;
 
-  --accent: #b8860b; /* Darkened UCF gold, legible as text on white. */
+  --accent: #926b09; /* Darkened UCF gold: 4.85:1 as text on white, 4.56:1 on the subtle surface. */
   --accent-contrast: #14161a;
   --accent-bright: #ffc904; /* True UCF gold, for fills only. */
 
@@ -83,8 +97,8 @@
     --surface-subtle: #1b1f26;
     --foreground: #e9ebef;
     --muted: #9aa2ae;
-    --border: #272c34;
-    --border-strong: #3a414c;
+    --border: #626b78;
+    --border-strong: #7e8795;
 
     --accent: #ffc904;
     --accent-contrast: #14161a;
@@ -108,8 +122,8 @@
   --surface-subtle: #1b1f26;
   --foreground: #e9ebef;
   --muted: #9aa2ae;
-  --border: #272c34;
-  --border-strong: #3a414c;
+  --border: #626b78;
+  --border-strong: #7e8795;
 
   --accent: #ffc904;
   --accent-contrast: #14161a;
