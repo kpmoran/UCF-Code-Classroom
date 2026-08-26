@@ -4,8 +4,10 @@ import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { Badge } from '@/components/ui/badge'
+import { SubmissionSummaryPanel } from '@/components/submission-summary'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import type { SubmissionSummary } from '@/lib/deadlines/summary'
 import { FieldHint, Input, Label } from '@/components/ui/input'
 import { createStudentTeam, joinTeam, leaveTeam } from '@/lib/teams/actions'
 
@@ -44,6 +46,7 @@ export function TeamFormationPanel({
   assignmentId,
   teams,
   yourTeamId,
+  yourSubmission,
   constraintsText,
   canCreate,
   hasRosterClaim,
@@ -51,6 +54,8 @@ export function TeamFormationPanel({
   assignmentId: string
   teams: TeamView[]
   yourTeamId: string | null
+  /** Only the viewer's own team: what the rest of the class submitted is not theirs to see. */
+  yourSubmission: SubmissionSummary | null
   constraintsText: string
   canCreate: boolean
   hasRosterClaim: boolean
@@ -164,6 +169,13 @@ export function TeamFormationPanel({
                       notifications.
                     </p>
                   </div>
+                ) : null}
+
+                {yourSubmission ? (
+                  <SubmissionSummaryPanel
+                    submission={yourSubmission}
+                    htmlUrl={yourTeam.repo.htmlUrl}
+                  />
                 ) : null}
 
                 <div className="flex flex-wrap gap-2">

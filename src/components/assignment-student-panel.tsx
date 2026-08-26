@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { SubmissionSummaryPanel } from '@/components/submission-summary'
 import { acceptAssignment } from '@/lib/assignments/actions'
+import type { SubmissionSummary } from '@/lib/deadlines/summary'
 
 type RepoState = {
   status: 'QUEUED' | 'PROVISIONING' | 'READY' | 'FAILED'
@@ -16,6 +18,7 @@ type RepoState = {
   pendingInvitation: boolean
   feedbackPrNumber: number | null
   projectUrl: string | null
+  submission: SubmissionSummary
 }
 
 /**
@@ -164,6 +167,10 @@ export function AssignmentStudentPanel({
                 </a>
               ) : null}
             </div>
+
+            {/* Above the clone instructions: once a deadline has passed, what was
+                recorded matters more to a student than how to check the work out. */}
+            <SubmissionSummaryPanel submission={repo.submission} htmlUrl={repo.htmlUrl} />
 
             <details className="text-xs text-muted">
               <summary className="cursor-pointer">How do I clone this?</summary>

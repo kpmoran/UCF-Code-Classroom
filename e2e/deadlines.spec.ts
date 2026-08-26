@@ -195,6 +195,69 @@ test('the locked-repository count is surfaced to the instructor', async ({ page,
   ).toBeVisible()
 })
 
+test('a student sees the commit recorded for them, and that it was late', async ({
+  page,
+  context,
+}) => {
+  const { student } = await seedClassroom({
+    deadline: new Date('2020-01-01T00:00:00'),
+    lockOnDeadline: false,
+  })
+
+  const sha = 'b'.repeat(40)
+  await db.assignmentRepo.create({
+    data: {
+      assignmentId,
+      userId: studentUserId,
+      status: 'READY',
+      fullName: `${ORG}/e2edl-dl700002`,
+      htmlUrl: `https://github.com/${ORG}/e2edl-dl700002`,
+      deadlineSha: sha,
+      // Pushed well after the deadline, so this is late — judged on the push, not on
+      // the fact that the deadline has since passed.
+      lastPushedAt: new Date('2020-02-01T00:00:00'),
+    },
+  })
+
+  await applySession(context, student)
+  await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+
+  // The short sha links to the commit itself: a bare hex string tells a student
+  // nothing they can act on.
+  const link = page.getByRole('link', { name: sha.slice(0, 7) })
+  await expect(link).toBeVisible()
+  await expect(link).toHaveAttribute(
+    'href',
+    `https://github.com/${ORG}/e2edl-dl700002/commit/${sha}`,
+  )
+  await expect(page.getByText('late', { exact: true })).toBeVisible()
+})
+
+test('a student whose repository had nothing by the deadline is told so plainly', async ({
+  page,
+  context,
+}) => {
+  const { student } = await seedClassroom({ deadline: new Date('2020-01-01T00:00:00') })
+
+  await db.assignmentRepo.create({
+    data: {
+      assignmentId,
+      userId: studentUserId,
+      status: 'READY',
+      fullName: `${ORG}/e2edl-dl700003`,
+      htmlUrl: `https://github.com/${ORG}/e2edl-dl700003`,
+      // The sweep looked and found no commit old enough. Distinct from null, which
+      // would mean it has not looked yet, and must not read as a missing feature.
+      deadlineSha: '',
+    },
+  })
+
+  await applySession(context, student)
+  await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+
+  await expect(page.getByText(/No commit was recorded/)).toBeVisible()
+})
+
 test('a student cannot grant themselves an extension', async ({ page, context }) => {
   const { student } = await seedClassroom({ deadline: new Date('2026-10-01T23:59:00') })
   await applySession(context, student)

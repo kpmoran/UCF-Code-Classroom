@@ -17,7 +17,7 @@ import { callsPerRepo } from '@/lib/assignments/estimate'
 import { db } from '@/lib/db'
 import { reconcileInvitations } from '@/lib/invitations/reconcile'
 import { toDateTimeLocal } from '@/lib/deadlines/format'
-import { effectiveDeadline, isLateSubmission } from '@/lib/deadlines/resolve'
+import { summarizeSubmission } from '@/lib/deadlines/summary'
 import { canCreateTeam, describeConstraints } from '@/lib/teams/rules'
 import { estimateProvisioningMs, formatDuration, getBudgetStatus } from '@/lib/github/rateLimiter'
 
@@ -128,6 +128,8 @@ export default async function AssignmentPage(
             assignmentId={assignment.id}
             userId={user.id}
             classroomId={classroom.id}
+            deadline={assignment.deadline}
+            lockOnDeadline={assignment.lockOnDeadline}
           />
         ) : (
           <StudentView
@@ -136,6 +138,8 @@ export default async function AssignmentPage(
             githubLogin={user.githubLogin}
             orgLogin={classroom.githubOrgLogin}
             classroomId={classroom.id}
+            deadline={assignment.deadline}
+            lockOnDeadline={assignment.lockOnDeadline}
           />
         )}
       </main>
@@ -270,26 +274,17 @@ async function StaffView({
         githubLogin: r.user?.githubLogin ?? null,
         acceptedAt: r.acceptedAt.toISOString(),
         lastPushedAt: r.lastPushedAt ? r.lastPushedAt.toISOString() : null,
-        submission: (() => {
-          const input = {
+        submission: summarizeSubmission(
+          {
             assignmentDeadline: assignment.deadline,
             extensionDeadline:
               (r.userId ? extensionByUser.get(r.userId) : undefined) ??
               (r.teamId ? extensionByTeam.get(r.teamId) : undefined) ??
               null,
             lockOnDeadline: assignment.lockOnDeadline,
-          }
-          const effective = effectiveDeadline(input)
-          return {
-            // '' is the sweep's record of "nothing was committed by the deadline",
-            // which is a different thing from null's "we have not looked yet".
-            sha: r.deadlineSha,
-            late: isLateSubmission(input, { lastPushedAt: r.lastPushedAt }),
-            locked: r.lockedAt !== null,
-            extended: input.extensionDeadline !== null,
-            deadline: effective ? effective.toISOString() : null,
-          }
-        })(),
+          },
+          r,
+        ),
         autograde: r.autogradeRuns[0]
           ? {
               score: r.autogradeRuns[0].score,
@@ -391,14 +386,18 @@ async function StudentView({
   githubLogin,
   orgLogin,
   classroomId,
+  deadline,
+  lockOnDeadline,
 }: {
   assignmentId: string
   userId: string
   githubLogin: string | null
   orgLogin: string
   classroomId: string
+  deadline: Date | null
+  lockOnDeadline: boolean
 }) {
-  const [repo, rosterEntry] = await Promise.all([
+  const [repo, rosterEntry, extension] = await Promise.all([
     db.assignmentRepo.findUnique({
       where: { assignmentId_userId: { assignmentId, userId } },
       select: {
@@ -410,11 +409,20 @@ async function StudentView({
         invitationId: true,
         feedbackPrNumber: true,
         projectUrl: true,
+        deadlineSha: true,
+        lockedAt: true,
+        lastPushedAt: true,
       },
     }),
     db.rosterEntry.findFirst({
       where: { classroomId, claimedByUserId: userId, removedAt: null },
       select: { id: true },
+    }),
+    // Their own extension only. A student has no business knowing who else was
+    // granted one.
+    db.extension.findUnique({
+      where: { assignmentId_userId: { assignmentId, userId } },
+      select: { newDeadline: true },
     }),
   ])
 
@@ -448,6 +456,14 @@ async function StudentView({
               pendingInvitation,
               feedbackPrNumber: repo.feedbackPrNumber,
               projectUrl: repo.projectUrl,
+              submission: summarizeSubmission(
+                {
+                  assignmentDeadline: deadline,
+                  extensionDeadline: extension?.newDeadline ?? null,
+                  lockOnDeadline,
+                },
+                repo,
+              ),
             }
           : null
       }
@@ -465,10 +481,14 @@ async function StudentTeamView({
   assignmentId,
   userId,
   classroomId,
+  deadline,
+  lockOnDeadline,
 }: {
   assignmentId: string
   userId: string
   classroomId: string
+  deadline: Date | null
+  lockOnDeadline: boolean
 }) {
   const [assignment, teams, rosterEntry] = await Promise.all([
     db.assignment.findUniqueOrThrow({
@@ -495,6 +515,9 @@ async function StudentTeamView({
             htmlUrl: true,
             failureReason: true,
             feedbackPrNumber: true,
+            deadlineSha: true,
+            lockedAt: true,
+            lastPushedAt: true,
           },
         },
       },
@@ -530,10 +553,37 @@ async function StudentTeamView({
   const yourTeam = teams.find((t) => t.members.some((m) => m.userId === userId))
   const createRule = canCreateTeam(constraints, teams.length, 'STUDENT')
 
+  /*
+   * Only the student's own team, and only their own team's extension.
+   *
+   * The panel lists every team so a student can find one to join, but what was
+   * submitted — and whether it was late — is not something to publish about the
+   * rest of the class.
+   */
+  const teamExtension = yourTeam
+    ? await db.extension.findUnique({
+        where: { assignmentId_teamId: { assignmentId, teamId: yourTeam.id } },
+        select: { newDeadline: true },
+      })
+    : null
+
+  const yourSubmission =
+    yourTeam?.repo
+      ? summarizeSubmission(
+          {
+            assignmentDeadline: deadline,
+            extensionDeadline: teamExtension?.newDeadline ?? null,
+            lockOnDeadline,
+          },
+          yourTeam.repo,
+        )
+      : null
+
   return (
     <TeamFormationPanel
       assignmentId={assignmentId}
       yourTeamId={yourTeam?.id ?? null}
+      yourSubmission={yourSubmission}
       constraintsText={describeConstraints(constraints)}
       canCreate={createRule.allowed}
       hasRosterClaim={rosterEntry !== null}

@@ -959,8 +959,16 @@ identical whether the sweep is one second or four minutes late.
 information: `null` means the deadline has not passed or the sweep has not run,
 a sha means that commit is what would be graded, and the empty string means the
 sweep looked and found no commit dated before the deadline — a repository that was
-empty, or one a student accepted after the deadline had already passed. The staff
-table shows all three, linking the sha to the commit on GitHub.
+empty, or one a student accepted after the deadline had already passed.
+
+Staff see all three as a column in the repository table; students see the same
+facts about their own work, on both the individual and the team assignment pages.
+`summarizeSubmission` in `src/lib/deadlines/summary.ts` is the single definition
+all three views share, because lateness depends on the *effective* deadline and an
+extension makes that per student — three inline copies would be three chances for a
+student's page to disagree with their instructor's about whether they were late.
+
+Students are shown only their own team's submission, never the rest of the class's.
 
 ## Rate limits
 
