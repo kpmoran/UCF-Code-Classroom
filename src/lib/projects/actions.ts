@@ -49,16 +49,27 @@ async function queueBoardWork(assignmentId: string): Promise<number> {
    * time this ran for twelve students.
    */
   const PER_MINUTE = 2
+  let created = 0
   for (const [index, repo] of repos.entries()) {
-    await enqueue(
+    const id = await enqueue(
       QUEUES.createProjectBoard,
       { assignmentRepoId: repo.id },
       // No singleton key: a repair has to run even though a create for the same
       // repository already completed, and pg-boss would otherwise collapse them.
       { startAfterSeconds: Math.floor(index / PER_MINUTE) * 60 },
     )
+    // Count what pg-boss actually accepted. Returning repos.length instead made both
+    // the audit entry and the UI report twelve queued jobs whether twelve or none were
+    // really created — send() returns null when it declines one — so the single number
+    // available for diagnosing a silent backfill could not tell "queued and lost" from
+    // "never queued at all".
+    if (id) created += 1
   }
-  return repos.length
+
+  if (created < repos.length) {
+    console.warn(`[jobs] board backfill: pg-boss accepted ${created} of ${repos.length} job(s)`)
+  }
+  return created
 }
 
 /**
