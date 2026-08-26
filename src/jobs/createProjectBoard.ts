@@ -51,7 +51,12 @@ export async function createProjectBoard(job: CreateProjectBoardJob): Promise<vo
     },
   })
 
-  if (!repo || !repo.assignment.projectBoardEnabled || !repo.fullName) return
+  if (!repo || !repo.assignment.projectBoardEnabled || !repo.fullName) {
+    // Also worth a line: a job that returns here leaves no other trace, and "boards are
+    // turned off" looks exactly like "the job never ran" from outside.
+    console.log(`[jobs] project board skipped for ${job.assignmentRepoId} (missing repo or boards off)`)
+    return
+  }
 
   const org = repo.assignment.classroom.githubOrgLogin
   const installationId = repo.assignment.classroom.installationId
@@ -84,7 +89,7 @@ export async function createProjectBoard(job: CreateProjectBoardJob): Promise<vo
     //    this the repair path for boards that predate this step.
     if (projectNumber !== null) {
       stage = 'share'
-      await shareBoard({
+      const shared = await shareBoard({
         installationId,
         org,
         projectNumber,
@@ -93,6 +98,13 @@ export async function createProjectBoard(job: CreateProjectBoardJob): Promise<vo
           ? repo.team.members.map((m) => m.user.githubLogin).filter((l): l is string => Boolean(l))
           : [repo.user?.githubLogin].filter((l): l is string => Boolean(l)),
       })
+      // Logged even though nothing changed on a repeat run. Sharing an existing board
+      // is the whole of the repair path and it used to print nothing at all, so a
+      // backfill that worked perfectly and one that never ran produced identical
+      // output — there was no way to tell them apart from the logs.
+      console.log(
+        `[jobs] project board #${projectNumber} for ${repo.fullName} shared with ${shared} account(s)`,
+      )
     }
 
     // Clear a previous board complaint; leave anything else, since the autograding
@@ -143,11 +155,16 @@ async function shareBoard(input: {
   projectNumber: number
   classroomId: string
   studentLogins: readonly string[]
-}): Promise<void> {
+}): Promise<number> {
   const { installationId, org, projectNumber, classroomId, studentLogins } = input
 
   const projectId = await projectNodeIdByNumber(installationId, org, projectNumber)
-  if (!projectId) return
+  // A recorded board that GitHub no longer has. Deleting it by hand is the usual
+  // cause; say so rather than returning silently.
+  if (!projectId) {
+    console.warn(`[jobs] project ${org}#${projectNumber} is recorded but GitHub does not have it`)
+    return 0
+  }
 
   const instructors = await db.classroomMember.findMany({
     where: { classroomId, role: 'INSTRUCTOR' },
@@ -173,4 +190,5 @@ async function shareBoard(input: {
   }
 
   await setProjectCollaborators(installationId, projectId, collaborators)
+  return collaborators.length
 }
