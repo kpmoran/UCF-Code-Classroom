@@ -58,6 +58,8 @@ export async function createProjectBoard(job: CreateProjectBoardJob): Promise<vo
   const repoName = repo.fullName.split('/')[1]
   const who = repo.team?.name ?? repo.user?.githubLogin ?? repo.user?.name ?? repoName
 
+  let stage: 'create' | 'share' = 'create'
+
   try {
     // 1. The board, unless one is already recorded. GitHub will happily create a
     //    second project with the same title, so this must not be retried blindly.
@@ -81,6 +83,7 @@ export async function createProjectBoard(job: CreateProjectBoardJob): Promise<vo
     // 2. Access. Runs whether or not the board was just created, which is what makes
     //    this the repair path for boards that predate this step.
     if (projectNumber !== null) {
+      stage = 'share'
       await shareBoard({
         installationId,
         org,
@@ -98,9 +101,22 @@ export async function createProjectBoard(job: CreateProjectBoardJob): Promise<vo
       await db.assignmentRepo.update({ where: { id: repo.id }, data: { failureReason: null } })
     }
   } catch (error) {
+    /*
+     * A retryable error is the rate limiter saying "not now", and pg-boss is built to
+     * hear that: rethrowing reschedules the job with backoff.
+     *
+     * Swallowing it is what produced six rows reading "Paused to stay within GitHub's
+     * rate limits. This will continue automatically" — a message whose own promise the
+     * code then broke, because nothing ever ran again. Provisioning a repository
+     * spends most of a minute's content budget, so the board job queued right behind
+     * it is refused almost by construction; retrying is the entire mechanism that is
+     * supposed to cover that.
+     */
+    if (error instanceof GitHubDomainError && error.retryable) throw error
+
     const raw = (error as Error).message
     const message = error instanceof GitHubDomainError ? error.userMessage : raw
-    const note = describeBoardFailure(`${message} ${raw}`)
+    const note = describeBoardFailure(`${message} ${raw}`, stage)
 
     await db.assignmentRepo.update({
       where: { id: repo.id },

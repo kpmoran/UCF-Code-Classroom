@@ -38,7 +38,19 @@ const schema = z.object({
       'ENCRYPTION_KEY must be exactly 32 bytes, base64-encoded',
     ),
 
-  GITHUB_CONTENT_CALLS_PER_MINUTE: z.coerce.number().int().positive().default(6),
+  /*
+   * Our own ceiling on content-creating calls, deliberately below GitHub's.
+   *
+   * GitHub documents a *secondary* limit of 80 content-generating requests per minute
+   * and 500 per hour — separate from the primary 5,000/hour for an installation, and
+   * easy to miss because it is on a different page. These numbers keep a wide margin
+   * under both, since the same allowance is shared with anything done in the web UI.
+   *
+   * The per-minute figure started at 6, which was far too tight: provisioning a single
+   * repository spends most of it, so the project-board job queued behind it was refused
+   * by us, not by GitHub, and a twelve-student backfill filled the page with errors.
+   */
+  GITHUB_CONTENT_CALLS_PER_MINUTE: z.coerce.number().int().positive().default(30),
   GITHUB_CONTENT_CALLS_PER_HOUR: z.coerce.number().int().positive().default(400),
 
   RUN_WORKER: z

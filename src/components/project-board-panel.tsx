@@ -107,9 +107,12 @@ export function ProjectBoardPanel({
           </div>
 
           <p className="text-sm text-muted">
-            If a board link gives a 404, use “Repair board access”: a board is
-            private until the people who need it are added, and GitHub shows
-            what you cannot see as missing rather than as forbidden.{" "}
+            This button covers every repository, not only the ones without a
+            board: the second half of the work is granting access, and a board
+            nobody can open is indistinguishable from a missing one — GitHub
+            shows what you cannot see as a 404 rather than as forbidden. Boards
+            are made a couple a minute to stay inside the request budget, so a
+            large class finishes over several minutes.{" "}
             {notProvisioned > 0
               ? "Repositories that do not exist yet get a board when they are provisioned, so the last column needs nothing from you."
               : "Every repository that exists can have a board."}
@@ -157,8 +160,8 @@ export function ProjectBoardPanel({
               {pending
                 ? "Working…"
                 : missing > 0
-                  ? `Create ${missing} missing board${missing === 1 ? "" : "s"}`
-                  : "Repair board access"}
+                  ? `Create ${missing} missing, re-share ${withBoard}`
+                  : `Repair access on ${withBoard} board${withBoard === 1 ? "" : "s"}`}
             </Button>
           ) : null}
         </CardFooter>

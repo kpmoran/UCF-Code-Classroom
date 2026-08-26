@@ -27,6 +27,18 @@ describe('describeBoardFailure', () => {
     )
   })
 
+  it('says which step failed, because the boards existed every time so far', () => {
+    /*
+     * Six real failures said "could not be created" about boards that had been
+     * created seconds earlier and only failed at the sharing step — sending you to
+     * look for something already there.
+     */
+    expect(describeBoardFailure('local rate budget exhausted (minute)', 'share')).toContain(
+      'was created but could not be shared',
+    )
+    expect(describeBoardFailure('boom', 'create')).toContain('could not be created')
+  })
+
   it('passes anything else through, rather than blaming permissions', () => {
     const message = describeBoardFailure('Something went wrong upstream')
     expect(message).toContain('Something went wrong upstream')

@@ -188,7 +188,13 @@ export async function provisionIndividualRepo(
       await enqueue(
         QUEUES.createProjectBoard,
         { assignmentRepoId: repo.id },
-        { singletonKey: `board:${repo.id}` },
+        /*
+         * Deliberately delayed. Provisioning one repository spends most of a minute's
+         * content budget, so a board job starting immediately is refused by our own
+         * limiter almost every time. Retries would recover it, but a minute's wait
+         * avoids the failed attempt entirely.
+         */
+        { singletonKey: `board:${repo.id}`, startAfterSeconds: 60 },
       )
     }
 

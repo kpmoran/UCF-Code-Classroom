@@ -39,13 +39,23 @@ async function queueBoardWork(assignmentId: string): Promise<number> {
     select: { id: true },
   })
 
-  for (const repo of repos) {
+  /*
+   * Spread over time rather than fired at once.
+   *
+   * Each board costs two content-creating calls and the budget is a handful per
+   * minute, so queueing a whole class simultaneously means almost all of them are
+   * refused on their first attempt. Retries recover it, but the instructor watches a
+   * table fill with errors in the meantime — which is exactly what happened the first
+   * time this ran for twelve students.
+   */
+  const PER_MINUTE = 2
+  for (const [index, repo] of repos.entries()) {
     await enqueue(
       QUEUES.createProjectBoard,
       { assignmentRepoId: repo.id },
       // No singleton key: a repair has to run even though a create for the same
       // repository already completed, and pg-boss would otherwise collapse them.
-      {},
+      { startAfterSeconds: Math.floor(index / PER_MINUTE) * 60 },
     )
   }
   return repos.length

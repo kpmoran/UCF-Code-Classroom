@@ -116,14 +116,26 @@ export async function repositoryNodeId(
  * accessible" and a capitalised "Projects", and matched neither, so the actionable
  * message never appeared. The unit test pins the real wording.
  */
-export function describeBoardFailure(message: string): string {
+export function describeBoardFailure(
+  message: string,
+  stage: 'create' | 'share' = 'create',
+): string {
   const permissionDenied =
     /permission to create projects/i.test(message) || /resource not accessible/i.test(message)
 
-  return permissionDenied
-    ? 'The GitHub App is not allowed to create project boards. Add the “Projects: write” ' +
-        'permission to the App, then accept it on this organization — a permission change ' +
-        'does not take effect until the installation accepts it.'
+  if (permissionDenied) {
+    return (
+      'The GitHub App is not allowed to create project boards. Add the “Projects: write” ' +
+      'permission to the App, then accept it on this organization — a permission change ' +
+      'does not take effect until the installation accepts it.'
+    )
+  }
+
+  // Naming the step matters. Every failure this has produced so far said "could not be
+  // created" about boards that had been created seconds earlier and only failed to be
+  // shared — which sends you looking for a board that is already there.
+  return stage === 'share'
+    ? `The project board was created but could not be shared: ${message}`
     : `The project board could not be created: ${message}`
 }
 
