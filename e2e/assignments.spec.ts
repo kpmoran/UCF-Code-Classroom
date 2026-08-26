@@ -1,4 +1,4 @@
-import { appAlert, applySession, db, expect, seedSession, test } from './fixtures'
+import { appAlert, applySession, db, expect, openSettingsTab, seedSession, test } from './fixtures'
 import { deleteRepoIfExists, getRepoInfo, isRepoCollaborator, VERIFY_USER } from './github'
 
 /**
@@ -618,6 +618,8 @@ test('project boards can be switched on for an assignment already under way', as
 
   await applySession(context, instructor)
   await page.goto(`/classrooms/${SLUG}/assignments/${assignment.id}`)
+  // The project-board panel lives behind the Settings tab now.
+  await openSettingsTab(page)
 
   /*
    * Scoped to the region: the feedback panel beside it carries an identical on/off

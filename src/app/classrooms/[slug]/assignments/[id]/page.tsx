@@ -16,6 +16,7 @@ import { roleSatisfies } from '@/lib/auth/roles'
 import { callsPerRepo } from '@/lib/assignments/estimate'
 import { db } from '@/lib/db'
 import { reconcileInvitations } from '@/lib/invitations/reconcile'
+import { Tabs } from '@/components/ui/tabs'
 import { toDateTimeLocal } from '@/lib/deadlines/format'
 import { summarizeSubmission } from '@/lib/deadlines/summary'
 import { canCreateTeam, describeConstraints } from '@/lib/teams/rules'
@@ -233,7 +234,18 @@ async function StaffView({
   })
   const eta = formatDuration(estimateProvisioningMs(withoutRepo * perRepo))
 
-  return (
+  /*
+   * Two tabs rather than one long column.
+   *
+   * The page had six stacked panels above the repository table, so the thing staff
+   * open the page to look at — who has a repository and what state it is in — was
+   * below five settings they change once at the start of term. Repositories lead;
+   * everything configurable moves behind Settings.
+   *
+   * The sections are async server components, rendered here and handed to the
+   * client tab strip as props, so splitting the page costs no extra round trips.
+   */
+  const settings = (
     <>
       <StaffDeadlineSection
         assignmentId={assignment.id}
@@ -246,6 +258,11 @@ async function StaffView({
       {assignment.type === 'GROUP' ? (
         <StaffTeamSection assignmentId={assignment.id} classroomId={classroomId} />
       ) : null}
+    </>
+  )
+
+  const repositories = (
+    <>
       <AssignmentStaffPanel
         assignmentId={assignment.id}
       assignmentType={assignment.type}
@@ -303,6 +320,16 @@ async function StaffView({
       }))}
       />
     </>
+  )
+
+  return (
+    <Tabs
+      label="Assignment views"
+      tabs={[
+        { id: 'repositories', label: 'Repositories', badge: repos.length, content: repositories },
+        { id: 'settings', label: 'Settings', content: settings },
+      ]}
+    />
   )
 }
 

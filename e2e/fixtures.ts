@@ -85,5 +85,17 @@ export function appAlert(page: Page) {
   return page.locator('[role="alert"]:not(#__next-route-announcer__)')
 }
 
+/**
+ * Reveal the staff assignment page's Settings tab.
+ *
+ * The deadline, autograding, feedback and project-board panels moved behind a tab,
+ * so a test that lands on the page and looks for them finds them in the DOM but
+ * hidden — `toBeVisible()` fails with "element(s) not found" rather than anything
+ * that hints at a tab. Call this after navigating, before asserting on any setting.
+ */
+export async function openSettingsTab(page: Page) {
+  await page.getByRole('tab', { name: 'Settings' }).click()
+}
+
 export const test = base
 export { expect } from '@playwright/test'

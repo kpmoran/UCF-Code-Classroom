@@ -1,4 +1,4 @@
-import { appAlert, applySession, db, expect, seedSession, test } from './fixtures'
+import { appAlert, applySession, db, expect, openSettingsTab, seedSession, test } from './fixtures'
 
 /**
  * Feedback pull request management through the browser.
@@ -102,6 +102,7 @@ test('the panel distinguishes waiting from missing', async ({ page, context }) =
 
   await applySession(context, instructor)
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
 
   await expect(page.getByRole('heading', { name: 'Feedback pull requests' })).toBeVisible()
 
@@ -130,6 +131,7 @@ test('queueing missing pull requests reports what it did and did not do', async 
 
   await applySession(context, instructor)
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
 
   await page.getByRole('button', { name: /Open 1 missing pull request/ }).click()
 
@@ -155,6 +157,7 @@ test('turning the feature on backfills students who already pushed', async ({
 
   await applySession(context, instructor)
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
 
   await expect(
     page.getByRole('region', { name: 'Feedback pull requests' }).getByText('off', { exact: true }),
@@ -182,6 +185,7 @@ test('turning the feature off is recorded and stops offering the backfill', asyn
 
   await applySession(context, instructor)
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
 
   await page
     .getByRole('region', { name: 'Feedback pull requests' })

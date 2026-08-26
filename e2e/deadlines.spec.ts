@@ -1,4 +1,4 @@
-import { appAlert, applySession, db, expect, seedSession, test } from './fixtures'
+import { appAlert, applySession, db, expect, openSettingsTab, seedSession, test } from './fixtures'
 
 /**
  * Deadline and extension management through the browser.
@@ -82,6 +82,7 @@ test('instructor sets a deadline and enables locking', async ({ page, context })
   await applySession(context, instructor)
 
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
   await expect(page.getByRole('heading', { name: 'Deadline', exact: true })).toBeVisible()
   await expect(page.getByText('No deadline set — nothing is ever marked late.')).toBeVisible()
 
@@ -115,6 +116,7 @@ test('instructor grants, updates and withdraws an extension', async ({ page, con
   await applySession(context, instructor)
 
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
   await expect(page.getByText('No extensions granted.')).toBeVisible()
 
   // The student is offered by roster name.
@@ -158,6 +160,7 @@ test('an extension needs both a target and a date', async ({ page, context }) =>
   await applySession(context, instructor)
 
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
 
   const grant = page.getByRole('button', { name: 'Grant extension' })
   await expect(grant).toBeDisabled()
@@ -189,6 +192,7 @@ test('the locked-repository count is surfaced to the instructor', async ({ page,
 
   await applySession(context, instructor)
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
 
   await expect(
     page.getByText('1 repository is currently read-only because the deadline passed.'),
@@ -256,6 +260,61 @@ test('a student whose repository had nothing by the deadline is told so plainly'
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
 
   await expect(page.getByText(/No commit was recorded/)).toBeVisible()
+})
+
+test('the staff page separates repositories from settings, and the tabs work by keyboard', async ({
+  page,
+  context,
+}) => {
+  const { instructor } = await seedClassroom({ deadline: new Date('2026-10-01T23:59:00') })
+  await applySession(context, instructor)
+  await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+
+  const tablist = page.getByRole('tablist', { name: 'Assignment views' })
+  await expect(tablist).toBeVisible()
+
+  // Repositories leads, because it is what staff open the page to look at.
+  const repositories = page.getByRole('tab', { name: /Repositories/ })
+  const settings = page.getByRole('tab', { name: 'Settings' })
+  await expect(repositories).toHaveAttribute('aria-selected', 'true')
+  await expect(settings).toHaveAttribute('aria-selected', 'false')
+
+  // Settings content is present but not shown until its tab is selected.
+  await expect(page.getByRole('heading', { name: 'Deadline', exact: true })).toBeHidden()
+
+  /*
+   * Arrow keys move between tabs. This is the half of the ARIA tabs pattern that
+   * gets left out when tabs are built from buttons and state, and nothing about
+   * clicking would reveal its absence.
+   */
+  await repositories.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(settings).toHaveAttribute('aria-selected', 'true')
+  await expect(settings).toBeFocused()
+  await expect(page.getByRole('heading', { name: 'Deadline', exact: true })).toBeVisible()
+
+  // Wraps back around, and Home returns to the first tab.
+  await page.keyboard.press('ArrowRight')
+  await expect(repositories).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('End')
+  await expect(settings).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('Home')
+  await expect(repositories).toHaveAttribute('aria-selected', 'true')
+
+  // Only the selected tab is in the tab order, so Tab leaves the strip rather than
+  // walking through every tab.
+  await expect(repositories).toHaveAttribute('tabindex', '0')
+  await expect(settings).toHaveAttribute('tabindex', '-1')
+})
+
+test('a student sees no tabs on the assignment page', async ({ page, context }) => {
+  const { student } = await seedClassroom({ deadline: new Date('2026-10-01T23:59:00') })
+  await applySession(context, student)
+  await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+
+  // The split is a staff affordance; a student has one view and should not be asked
+  // to choose between it and an empty one.
+  await expect(page.getByRole('tablist')).toHaveCount(0)
 })
 
 test('a student cannot grant themselves an extension', async ({ page, context }) => {

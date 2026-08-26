@@ -119,10 +119,27 @@ export function AssignmentStudentPanel({
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         {inProgress ? (
+          /*
+           * A paused row already carries the reason it paused, and it used to be
+           * thrown away: failureReason is only rendered for FAILED, but a rate-limit
+           * pause puts the row back to QUEUED and records the explanation there.
+           * So a student waiting out a real pause was told it "usually takes a few
+           * seconds" — true on a quiet day, and wrong in exactly the case where the
+           * message matters.
+           */
           <p className="text-muted">
-            Setting up your repository. This usually takes a few seconds, but can take longer
-            when a whole class accepts at once — GitHub limits how fast repositories can be
-            created. This page updates itself.
+            {repo.failureReason ? (
+              <>
+                {repo.failureReason} You do not need to do anything — this page updates
+                itself, and work usually resumes within a few minutes.
+              </>
+            ) : (
+              <>
+                Setting up your repository. This usually takes a few seconds, but can take
+                longer when a whole class accepts at once — GitHub limits how fast
+                repositories can be created. This page updates itself.
+              </>
+            )}
           </p>
         ) : null}
 

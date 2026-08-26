@@ -1,4 +1,4 @@
-import { appAlert, applySession, db, expect, seedSession, test } from './fixtures'
+import { appAlert, applySession, db, expect, openSettingsTab, seedSession, test } from './fixtures'
 
 /**
  * Autograding configuration through the browser.
@@ -81,6 +81,7 @@ test('instructor configures grading tests', async ({ page, context }) => {
   await applySession(context, instructor)
 
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
   await expect(page.getByRole('heading', { name: 'Autograding' })).toBeVisible()
   await expect(page.getByText('disabled')).toBeVisible()
 
@@ -127,6 +128,7 @@ test('duplicate test names are refused', async ({ page, context }) => {
   await applySession(context, instructor)
 
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
 
   for (let i = 0; i < 2; i++) {
     await page.getByRole('button', { name: 'Add a test' }).click()
@@ -149,6 +151,7 @@ test('a test without a command is refused', async ({ page, context }) => {
   await applySession(context, instructor)
 
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
   await page.getByRole('button', { name: 'Add a test' }).click()
   await page.getByLabel('Test name').fill('No command')
   await page.getByRole('button', { name: 'Save autograding' }).click()
@@ -167,6 +170,7 @@ test('tests can be reordered and removed', async ({ page, context }) => {
   await applySession(context, instructor)
 
   await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
   await expect(page.getByLabel('Test name').nth(0)).toHaveValue('First')
 
   await page.getByRole('button', { name: 'Move test 2 up' }).click()
