@@ -14,6 +14,18 @@
 
 set -eu
 
+# The container runs as root with the image's default umask of 022, which writes
+# every dump 0644 — world-readable to any account on the host, for a file holding
+# the whole student database. 027 makes them 0640 and new directories 0750, so
+# reading a dump requires being root or being in the directory's group.
+#
+# That group is also how the off-box pull gets access without a root login; see
+# deploy/backup/README-offsite.md. Files written before this change keep their old
+# mode, so tighten them once by hand:
+#
+#   chmod 0640 /opt/uccc/backups/*.dump
+umask 027
+
 DIR="${BACKUP_DIR:-/backups}"
 KEEP_DAYS="${BACKUP_KEEP_DAYS:-14}"
 AT="${BACKUP_AT:-03:30}"

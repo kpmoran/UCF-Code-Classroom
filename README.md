@@ -1382,6 +1382,19 @@ cat backups/LAST_SUCCESS                                    # when it last worke
 docker compose run --rm backup /restore.sh --list           # what is available
 ```
 
+Dumps are written `0640` and owned by root, so they are not readable by other
+accounts on the host — a file holding the whole student database should not be
+world-readable, which it was until `umask 027` was set in `backup.sh`.
+
+**Both copies are on one machine.** The dumps live on the app server's disk, and
+Linode's VM backups include that directory but stay in the same data centre — so a
+lost region or a compromised account takes both. `deploy/backup/README-offsite.md`
+sets up a third copy on a second host, pulled rather than pushed so the app server
+holds no credential that could delete it. Linode's own docs recommend exactly this,
+and note that snapshots of a *running* database may be caught mid-transaction —
+which is why the verified `pg_dump` inside the image is what you actually restore
+from.
+
 Restoring — destructive, and it asks before proceeding:
 
 ```bash
