@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +47,33 @@ export function ProjectBoardPanel({
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  /*
+   * Keep the page current while the backfill runs.
+   *
+   * The repository table below polls only while something is QUEUED or PROVISIONING,
+   * and board work never touches a repository's status — every row stays READY the
+   * whole time. So a backfill would finish, clear its error notes, and the instructor
+   * would go on looking at a page rendered before any of it happened. That is
+   * indistinguishable from the repair having done nothing, and it is exactly how a
+   * successful repair got reported as a failure.
+   *
+   * Bounded rather than indefinite: the queue is drained two a minute, so we know
+   * roughly when there is nothing left to see.
+   */
+  const [refreshUntil, setRefreshUntil] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (refreshUntil === null) return;
+    const timer = setInterval(() => {
+      if (Date.now() > refreshUntil) {
+        setRefreshUntil(null);
+        return;
+      }
+      router.refresh();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [refreshUntil, router]);
+
   function run(
     action: (
       fd: FormData,
@@ -69,11 +96,17 @@ export function ProjectBoardPanel({
       }
 
       const { queued } = result.data;
-      setMessage(
-        queued > 0
-          ? `Creating ${queued} board${queued === 1 ? "" : "s"}. They appear as each one is made.`
-          : "No boards were missing.",
-      );
+      if (queued > 0) {
+        // Two a minute, plus slack for the last one to finish and be written down.
+        const minutes = Math.ceil(queued / 2);
+        setRefreshUntil(Date.now() + (minutes * 60 + 90) * 1000);
+        setMessage(
+          `Working through ${queued} repositor${queued === 1 ? "y" : "ies"}, about ` +
+            `${minutes} minute${minutes === 1 ? "" : "s"}. This page updates as each one finishes.`,
+        );
+      } else {
+        setMessage("Nothing to do — no repositories are ready for a board yet.");
+      }
       router.refresh();
     });
   }

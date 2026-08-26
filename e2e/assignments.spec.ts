@@ -640,7 +640,9 @@ test('project boards can be switched on for an assignment already under way', as
     })
     .toBe(true)
 
-  await expect(panel.getByText(/Creating 2 boards/)).toBeVisible()
+  // Names the repository count and an ETA, because the work is spread over minutes
+  // and the page now refreshes itself until it is done.
+  await expect(panel.getByText(/Working through 2 repositories/)).toBeVisible()
 
   const audit = await db.auditLog.findFirst({
     where: { classroomId, action: 'assignment.project_boards_on' },
