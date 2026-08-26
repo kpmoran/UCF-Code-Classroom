@@ -949,10 +949,11 @@ runs into first.
 
 Consequently all GitHub mutations run through a persistent job queue behind a
 shared token bucket (`GITHUB_CONTENT_CALLS_PER_MINUTE` / `_PER_HOUR`, defaulting
-to 30 and 400). Those are *our* numbers, deliberately under GitHub's, because the
-same allowance covers anything staff do in the web UI at the same time. **Do not
-raise them past GitHub's own 80 and 500** — jobs would start failing with 403s
-instead of waiting their turn. Provisioning a large class legitimately takes
+to 60 and 400). Those are *our* numbers, kept under GitHub's, because the same
+allowance covers anything staff do in the web UI at the same time — so the gap
+between 60 and 80 is thinner in practice than it looks. **Do not raise them past
+GitHub's own 80 and 500** — jobs would start failing with 403s instead of waiting
+their turn. Provisioning a large class legitimately takes
 several minutes; the UI shows an ETA.
 
 Setting them too *low* has its own failure mode, and it is less obvious. The
