@@ -169,11 +169,30 @@ test('the logo stays visible in every theme and override combination', async ({ 
     const state = await page.evaluate(() => {
       const img = document.querySelector('header img') as HTMLElement | null
       const header = document.querySelector('header') as HTMLElement | null
+
+      /*
+       * Darkness from luminance, not from "is it pure white".
+       *
+       * This compared the header's background against rgb(255,255,255), which was only
+       * ever a stand-in for "light" and stopped being true the moment the light-mode
+       * surface became a grey. The test then failed on a page whose logo was perfectly
+       * visible — a false alarm that costs more than the bug it was meant to catch,
+       * when the honest version is a few lines.
+       */
+      const bg = header ? getComputedStyle(header).backgroundColor : null
+      const nums = bg?.match(/[\d.]+/g)?.map(Number) ?? []
+      const channel = (v: number) => {
+        const c = v / 255
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+      }
+      const luminance =
+        nums.length >= 3
+          ? 0.2126 * channel(nums[0]) + 0.7152 * channel(nums[1]) + 0.0722 * channel(nums[2])
+          : null
+
       return {
         inverted: img ? getComputedStyle(img).filter.includes('invert') : null,
-        headerIsDark: header
-          ? getComputedStyle(header).backgroundColor !== 'rgb(255, 255, 255)'
-          : null,
+        headerIsDark: luminance === null ? null : luminance < 0.5,
       }
     })
 

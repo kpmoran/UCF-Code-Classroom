@@ -105,6 +105,31 @@ describe.each([
     }
   })
 
+  /*
+   * Not a WCAG rule — backgrounds have no contrast requirement of their own — but the
+   * thing a reader actually notices, and the reason this palette was changed. A card
+   * has to look like a card. --surface was once literally #ffffff, the same value as
+   * --background, so every box on the page was white on white and only its border
+   * said otherwise. Nothing in the accessibility assertions above would catch that,
+   * because a border at 3:1 passes perfectly well on an invisible panel.
+   *
+   * 1.05 is a floor, not a target: the ramp currently sits at ~1.11 and ~1.07. It is
+   * low enough not to dictate the design and high enough that collapsing two steps
+   * into one identical value fails.
+   */
+  it('separates the page, the cards, and the inset panels', () => {
+    const step = (a: string, b: string) => contrast(t[a], t[b])
+
+    expect(step('--surface', '--background'), 'card against the page').toBeGreaterThanOrEqual(1.05)
+    expect(
+      step('--surface-subtle', '--surface'),
+      'inset panel against the card',
+    ).toBeGreaterThanOrEqual(1.05)
+
+    // And they must be three distinct values, not two plus a duplicate.
+    expect(new Set([t['--background'], t['--surface'], t['--surface-subtle']]).size).toBe(3)
+  })
+
   it('keeps each status colour readable on its own tint', () => {
     for (const tone of ['success', 'warning', 'danger', 'info']) {
       expect(
