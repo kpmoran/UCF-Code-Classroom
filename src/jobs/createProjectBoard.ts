@@ -166,20 +166,44 @@ async function shareBoard(input: {
     return 0
   }
 
-  const instructors = await db.classroomMember.findMany({
-    where: { classroomId, role: 'INSTRUCTOR' },
-    select: { user: { select: { githubLogin: true } } },
+  /*
+   * Instructors *and* TAs. This asked for INSTRUCTOR only, which meant a TA got 404
+   * on every board in the course — boards are private and an organization owner is
+   * not automatically a collaborator on them, so nothing else would have let them
+   * in. The symptom is identical to the board not existing.
+   */
+  const staff = await db.classroomMember.findMany({
+    where: { classroomId, role: { in: ['INSTRUCTOR', 'TA'] } },
+    select: { role: true, user: { select: { githubLogin: true } } },
   })
-  const instructorLogins = instructors
+  const instructorLogins = staff
+    .filter((m) => m.role === 'INSTRUCTOR')
+    .map((m) => m.user.githubLogin)
+    .filter((l): l is string => Boolean(l))
+  // WRITER, not ADMIN: enough to read the board and move cards while grading, not
+  // enough to delete it or change who can see it.
+  const taLogins = staff
+    .filter((m) => m.role === 'TA')
     .map((m) => m.user.githubLogin)
     .filter((l): l is string => Boolean(l))
 
-  const ids = await userNodeIds(installationId, [...studentLogins, ...instructorLogins])
+  const ids = await userNodeIds(installationId, [
+    ...studentLogins,
+    ...instructorLogins,
+    ...taLogins,
+  ])
 
   const collaborators: BoardCollaborator[] = []
   for (const login of instructorLogins) {
     const id = ids.get(login.toLowerCase())
     if (id) collaborators.push({ userId: id, role: 'ADMIN' })
+  }
+  for (const login of taLogins) {
+    const id = ids.get(login.toLowerCase())
+    // An instructor who is also listed as a TA keeps the higher role.
+    if (id && !collaborators.some((c) => c.userId === id)) {
+      collaborators.push({ userId: id, role: 'WRITER' })
+    }
   }
   for (const login of studentLogins) {
     const id = ids.get(login.toLowerCase())

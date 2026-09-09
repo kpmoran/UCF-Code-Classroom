@@ -6,6 +6,7 @@ import {
   addTeamRepoAccess,
   createTeam,
   removeTeamMembership,
+  removeTeamRepoAccess,
 } from '@/lib/github/operations/teams'
 
 /**
@@ -144,6 +145,46 @@ export async function removeFromStaffTeam(
     githubLogin,
   )
   return true
+}
+
+/**
+ * Whether the staff team must be kept *off* a repository.
+ *
+ * True when someone who is staff in this classroom is also a participant in the
+ * repository — a TA who accepted the assignment as a student, or a student later
+ * promoted to TA. Accepting only needs a claimed roster entry and any classroom
+ * role, so this is reachable without anyone doing something odd.
+ *
+ * The reason is the deadline lock. Locking works by lowering that person's *direct
+ * collaborator* permission to `pull`, and GitHub resolves access to the highest
+ * level across every source of grant — repository, team, organization. A team grant
+ * of `push` therefore overrides the lock, and the app would report a repository as
+ * locked while its owner could still push to it. Nothing in the row would look
+ * wrong.
+ *
+ * The cost is that other staff cannot reach that one repository through the team.
+ * That is the better trade: an instructor is an organization owner and can read it
+ * anyway, and a lock that silently does not hold is worse than a repository that
+ * needs opening a different way.
+ */
+export function staffTeamMustAvoidRepo(input: {
+  participantUserIds: readonly string[]
+  staffUserIds: readonly string[]
+}): boolean {
+  const staff = new Set(input.staffUserIds)
+  return input.participantUserIds.some((id) => staff.has(id))
+}
+
+/** Take the staff team off one repository, so a direct-permission lock can hold. */
+export async function revokeStaffAccessFromRepo(input: {
+  classroomId: string
+  installationId: bigint
+  org: string
+  teamSlug: string
+  repo: string
+}): Promise<void> {
+  const { classroomId, installationId, org, teamSlug, repo } = input
+  await removeTeamRepoAccess(classroomId, installationId, org, teamSlug, org, repo)
 }
 
 /** Grant the staff team access to one repository. */

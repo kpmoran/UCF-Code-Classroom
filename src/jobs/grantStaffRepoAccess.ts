@@ -1,6 +1,10 @@
 import { db } from '@/lib/db'
 import { GitHubDomainError } from '@/lib/github/errors'
-import { grantStaffAccessToRepo } from '@/lib/staff/team'
+import {
+  grantStaffAccessToRepo,
+  revokeStaffAccessFromRepo,
+  staffTeamMustAvoidRepo,
+} from '@/lib/staff/team'
 
 import type { GrantStaffRepoAccessJob } from './queue'
 
@@ -22,11 +26,21 @@ export async function grantStaffRepoAccess(job: GrantStaffRepoAccessJob): Promis
       id: true,
       fullName: true,
       failureReason: true,
+      userId: true,
+      team: { select: { members: { select: { userId: true } } } },
       assignment: {
         select: {
           classroomId: true,
           classroom: {
-            select: { githubOrgLogin: true, installationId: true, staffTeamSlug: true },
+            select: {
+              githubOrgLogin: true,
+              installationId: true,
+              staffTeamSlug: true,
+              members: {
+                where: { role: { in: ['INSTRUCTOR', 'TA'] } },
+                select: { userId: true },
+              },
+            },
           },
         },
       },
@@ -45,13 +59,52 @@ export async function grantStaffRepoAccess(job: GrantStaffRepoAccessJob): Promis
     return
   }
 
+  const repoName = repo.fullName.split('/')[1]
+
+  /*
+   * A repository belonging to someone who is also staff must be kept off the team.
+   *
+   * The deadline lock lowers that person's direct collaborator permission to `pull`,
+   * and GitHub takes the highest permission across every source of grant, so a team
+   * grant of `push` overrides it — the app would show the repository as locked while
+   * its owner kept pushing. Revoked rather than merely skipped, so re-running repairs
+   * a repository that was granted before this case was understood.
+   */
+  const participantUserIds = [
+    repo.userId,
+    ...(repo.team?.members.map((m) => m.userId) ?? []),
+  ].filter((id): id is string => Boolean(id))
+
+  const mustAvoid = staffTeamMustAvoidRepo({
+    participantUserIds,
+    staffUserIds: classroom.members.map((m) => m.userId),
+  })
+
   try {
+    // Inside the try, not before it: revoking is a GitHub write like any other and
+    // can be refused by the rate limiter, and only the catch below knows to rethrow
+    // a retryable refusal so pg-boss reschedules instead of dropping the work.
+    if (mustAvoid) {
+      await revokeStaffAccessFromRepo({
+        classroomId,
+        installationId: classroom.installationId,
+        org: classroom.githubOrgLogin,
+        teamSlug: classroom.staffTeamSlug,
+        repo: repoName,
+      })
+      console.log(
+        `[jobs] staff team kept off ${repo.fullName}: a participant is staff in this ` +
+          'classroom, so a team grant would override their deadline lock',
+      )
+      return
+    }
+
     await grantStaffAccessToRepo({
       classroomId,
       installationId: classroom.installationId,
       org: classroom.githubOrgLogin,
       teamSlug: classroom.staffTeamSlug,
-      repo: repo.fullName.split('/')[1],
+      repo: repoName,
     })
     console.log(`[jobs] staff team ${classroom.staffTeamSlug} granted access to ${repo.fullName}`)
 

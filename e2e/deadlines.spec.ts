@@ -318,6 +318,69 @@ test('the staff access panel names a TA who has not linked GitHub', async ({
   await expect(panel.getByText(/across all\s+assignments, not just this one/)).toBeVisible()
 })
 
+test('a TA who accepted the assignment keeps an enforceable deadline lock', async ({
+  page,
+  context,
+}) => {
+  /*
+   * Accepting needs a claimed roster entry and any classroom role, so a TA can hold
+   * a real repository — either by accepting before being promoted, or by claiming a
+   * roster entry as staff.
+   *
+   * That collides with locking. The lock lowers their *direct collaborator*
+   * permission to pull, and GitHub resolves access to the highest level across every
+   * source of grant, so the staff team's push would override it: the row would read
+   * locked while its owner kept pushing. The job therefore keeps the team off that
+   * one repository, and the instructor page must not claim otherwise.
+   */
+  const { instructor } = await seedClassroom({
+    deadline: new Date('2020-01-01T00:00:00'),
+    lockOnDeadline: true,
+  })
+
+  const ta = await db.user.upsert({
+    where: { email: 'grading-ta@e2e.invalid' },
+    update: { name: 'Grading TA', githubLogin: 'e2e-grading-ta' },
+    create: {
+      name: 'Grading TA',
+      email: 'grading-ta@e2e.invalid',
+      githubLogin: 'e2e-grading-ta',
+      githubId: '910999001',
+    },
+  })
+  await db.classroomMember.upsert({
+    where: { classroomId_userId: { classroomId, userId: ta.id } },
+    update: { role: 'TA' },
+    create: { classroomId, userId: ta.id, role: 'TA' },
+  })
+
+  // The TA's own submission, locked by a previous sweep.
+  await db.assignmentRepo.create({
+    data: {
+      assignmentId,
+      userId: ta.id,
+      status: 'READY',
+      fullName: `${ORG}/e2edl-ta-own`,
+      htmlUrl: `https://github.com/${ORG}/e2edl-ta-own`,
+      lockedAt: new Date(),
+      deadlineSha: 'c'.repeat(40),
+    },
+  })
+
+  await applySession(context, instructor)
+  await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+
+  // The repository is listed and shows as locked, which is the state the app must be
+  // able to keep true rather than merely assert.
+  await expect(page.getByRole('cell', { name: /Grading TA/ })).toBeVisible()
+  await expect(page.getByText('locked', { exact: true }).first()).toBeVisible()
+
+  await openSettingsTab(page)
+  await expect(
+    page.getByText('1 repository is currently read-only because the deadline passed.'),
+  ).toBeVisible()
+})
+
 test('the staff panel counts every repository in the classroom, not just this assignment', async ({
   page,
   context,

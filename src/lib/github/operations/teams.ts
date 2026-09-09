@@ -307,6 +307,45 @@ export async function addTeamRepoAccess(
   )
 }
 
+/**
+ * Take a repository away from a team.
+ *
+ * The counterpart to `addTeamRepoAccess`, needed because a team grant *overrides* a
+ * lower direct-collaborator permission — GitHub resolves access to the highest level
+ * across every source — so leaving a stale grant in place silently defeats the
+ * deadline lock on that repository. Removing it is what lets a re-run repair a
+ * repository that was granted before anyone noticed.
+ *
+ * A repository the team never had is not an error: this runs to assert an absence,
+ * and 404 means the absence already holds.
+ */
+export async function removeTeamRepoAccess(
+  classroomId: string,
+  installationId: bigint,
+  org: string,
+  teamSlug: string,
+  repoOwner: string,
+  repo: string,
+): Promise<void> {
+  try {
+    await teamMutate(
+      `remove repo access for team ${teamSlug} in org ${org}`,
+      classroomId,
+      installationId,
+      (octokit) =>
+        octokit.rest.teams.removeRepoInOrg({
+          org,
+          team_slug: teamSlug,
+          owner: repoOwner,
+          repo,
+        }),
+    )
+  } catch (error) {
+    if (error instanceof GitHubDomainError && error.status === 404) return
+    throw error
+  }
+}
+
 export async function deleteTeam(
   classroomId: string,
   installationId: bigint,
