@@ -262,6 +262,65 @@ test('a student whose repository had nothing by the deadline is told so plainly'
   await expect(page.getByText(/No commit was recorded/)).toBeVisible()
 })
 
+test('the staff access panel names a TA who has not linked GitHub', async ({
+  page,
+  context,
+}) => {
+  /*
+   * The failure this panel exists for. Making someone a TA in the app grants them
+   * nothing on GitHub — repositories are created with the student as their only
+   * collaborator — so a TA reports that every repository 404s and it looks like a
+   * bug rather than a permission nobody granted.
+   *
+   * The subtler half is a TA who has an account here and never signed in with
+   * GitHub: they cannot be added to a team at all, so the button can report success
+   * while that person still sees nothing. Naming them is the whole point.
+   */
+  const { instructor } = await seedClassroom({ deadline: null })
+
+  // Upsert, not create. seedClassroom deletes the classroom and cascades its
+  // members, but the user survives — and `email` is unique, so a plain create passes
+  // on a clean database and then fails on every run afterwards. This test passed in
+  // isolation and broke the suite exactly once, which is the worst way to find out.
+  const ta = await db.user.upsert({
+    where: { email: 'unlinked-ta@e2e.invalid' },
+    update: { name: 'Unlinked TA', githubLogin: null, githubId: null },
+    create: {
+      name: 'Unlinked TA',
+      email: 'unlinked-ta@e2e.invalid',
+      // No githubLogin and no githubId: signed up, never linked GitHub.
+    },
+  })
+  await db.classroomMember.upsert({
+    where: { classroomId_userId: { classroomId, userId: ta.id } },
+    update: { role: 'TA' },
+    create: { classroomId, userId: ta.id, role: 'TA' },
+  })
+
+  await applySession(context, instructor)
+  await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
+
+  const panel = page.getByRole('region', { name: 'Staff access' })
+  await expect(panel).toBeVisible()
+
+  // Not set up yet, and it says so rather than looking like it is working.
+  await expect(panel.getByText('not set up')).toBeVisible()
+  await expect(panel.getByText(/No linked GitHub account: Unlinked TA/)).toBeVisible()
+
+  // The copy has to say that the app's TA role is not GitHub access, because that
+  // assumption is what sends people looking in the wrong place.
+  await expect(panel.getByText(/grants nothing on GitHub by itself/)).toBeVisible()
+})
+
+test('a student never sees the staff access panel', async ({ page, context }) => {
+  const { student } = await seedClassroom({ deadline: null })
+  await applySession(context, student)
+  await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+
+  await expect(page.getByRole('region', { name: 'Staff access' })).toHaveCount(0)
+})
+
 test('the staff page separates repositories from settings, and the tabs work by keyboard', async ({
   page,
   context,

@@ -3,6 +3,7 @@ import 'server-only'
 import { provisionIndividualRepo } from './provisionIndividualRepo'
 import { provisionTeamRepo } from './provisionTeamRepo'
 import { createProjectBoard } from './createProjectBoard'
+import { grantStaffRepoAccess } from './grantStaffRepoAccess'
 import { enforceDeadlines } from './enforceDeadlines'
 import { ensureFeedbackPr, sweepFeedbackPrs } from './ensureFeedbackPr'
 import { ingestAutogradeRun } from './ingestAutogradeRun'
@@ -113,6 +114,16 @@ export async function startWorker(): Promise<void> {
     async (jobs) => {
       for (const job of jobs) {
         await createProjectBoard(job.data)
+      }
+    },
+  )
+
+  await boss.work<{ assignmentRepoId: string }>(
+    QUEUES.grantStaffRepoAccess,
+    { batchSize: 1, localConcurrency: 2 },
+    async (jobs) => {
+      for (const job of jobs) {
+        await grantStaffRepoAccess(job.data)
       }
     },
   )

@@ -132,6 +132,16 @@ model Classroom {
   installationId   BigInt
   ownerTokenUserId String?
 
+  // The org team holding this classroom's instructors and TAs, granted access to
+  // every assignment repository so staff can read and grade student work.
+  //
+  // A team rather than direct collaborators: one GitHub write per repository
+  // regardless of how many staff there are, and a TA who joins mid-term is added
+  // once instead of once per repository. Nullable because it is created on demand —
+  // creating org teams needs the owner credential, which a classroom may not have
+  // connected yet.
+  staffTeamSlug String?
+
   // Defaults inherited by new assignments.
   defaultRepoVisibility   RepoVisibility    @default(PRIVATE)
   defaultStudentPermission StudentPermission @default(PUSH)

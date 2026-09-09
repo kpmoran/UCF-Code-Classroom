@@ -26,6 +26,7 @@ export const QUEUES = {
   ensureFeedbackPr: 'ensure-feedback-pr',
   sweepFeedbackPrs: 'sweep-feedback-prs',
   createProjectBoard: 'create-project-board',
+  grantStaffRepoAccess: 'grant-staff-repo-access',
 } as const
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
@@ -123,6 +124,10 @@ export type CreateProjectBoardJob = {
   assignmentRepoId: string
 }
 
+export type GrantStaffRepoAccessJob = {
+  assignmentRepoId: string
+}
+
 /** Carries no payload; scans for repositories still awaiting a feedback PR. */
 export type SweepFeedbackPrsJob = Record<string, never>
 
@@ -143,6 +148,7 @@ type JobPayloads = {
   [QUEUES.ensureFeedbackPr]: EnsureFeedbackPrJob
   [QUEUES.sweepFeedbackPrs]: SweepFeedbackPrsJob
   [QUEUES.createProjectBoard]: CreateProjectBoardJob
+  [QUEUES.grantStaffRepoAccess]: GrantStaffRepoAccessJob
 }
 
 /**

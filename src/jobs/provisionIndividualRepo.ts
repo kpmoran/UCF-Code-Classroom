@@ -196,7 +196,26 @@ export async function provisionIndividualRepo(
          */
         { singletonKey: `board:${repo.id}`, startAfterSeconds: 60 },
       )
+
     }
+
+    /*
+     * Staff access to the new repository. Outside the project-board branch on
+     * purpose — the first version of this nested it there, which quietly meant
+     * staff got access only to assignments that happened to have boards on.
+     *
+     * Queued rather than done inline for the same reason as the board: one more
+     * GitHub write per repository against the same content budget, which would
+     * otherwise be spent during the burst when a whole class accepts at once.
+     *
+     * A no-op until someone sets up the classroom's staff team, so this costs
+     * nothing for a classroom that has not asked for it.
+     */
+    await enqueue(
+      QUEUES.grantStaffRepoAccess,
+      { assignmentRepoId: repo.id },
+      { singletonKey: `staff:${repo.id}`, startAfterSeconds: 90 },
+    )
 
     // Autograding workflow. Written after the repository exists and before the
     // feedback PR, so the injected commits are part of the starting state rather

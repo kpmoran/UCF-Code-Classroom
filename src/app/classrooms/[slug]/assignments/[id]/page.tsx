@@ -16,6 +16,7 @@ import { roleSatisfies } from '@/lib/auth/roles'
 import { callsPerRepo } from '@/lib/assignments/estimate'
 import { db } from '@/lib/db'
 import { reconcileInvitations } from '@/lib/invitations/reconcile'
+import { StaffAccessPanel } from '@/components/staff-access-panel'
 import { Tabs } from '@/components/ui/tabs'
 import { toDateTimeLocal } from '@/lib/deadlines/format'
 import { summarizeSubmission } from '@/lib/deadlines/summary'
@@ -251,6 +252,11 @@ async function StaffView({
         assignmentId={assignment.id}
         classroomId={classroomId}
         assignmentType={assignment.type}
+      />
+      <StaffAccessSection
+        assignmentId={assignment.id}
+        classroomId={classroomId}
+        orgLogin={orgLogin}
       />
       <StaffAutogradingSection assignmentId={assignment.id} />
       <StaffFeedbackSection assignmentId={assignment.id} />
@@ -756,6 +762,58 @@ async function StaffAutogradingSection({ assignmentId }: { assignmentId: string 
 }
 
 /** Project board status for staff, and the backfill. */
+/**
+ * Staff access to student repositories.
+ *
+ * Reads the classroom rather than the assignment, because the team is per classroom
+ * — a TA is a TA for the course, not for one assignment — while the repositories it
+ * needs granting on belong to this assignment.
+ */
+async function StaffAccessSection({
+  assignmentId,
+  classroomId,
+  orgLogin,
+}: {
+  assignmentId: string
+  classroomId: string
+  orgLogin: string
+}) {
+  const [classroom, repoCount] = await Promise.all([
+    db.classroom.findUniqueOrThrow({
+      where: { id: classroomId },
+      select: {
+        staffTeamSlug: true,
+        members: {
+          where: { role: { in: ['INSTRUCTOR', 'TA'] } },
+          select: { user: { select: { name: true, githubLogin: true } } },
+        },
+      },
+    }),
+    db.assignmentRepo.count({
+      where: { assignmentId, status: 'READY', fullName: { not: null } },
+    }),
+  ])
+
+  // Surfaced separately because it is the answer to "the button said it worked and
+  // my TA still cannot see anything": someone with no linked GitHub account cannot
+  // be added to a team at all.
+  const unlinked = classroom.members
+    .filter((m) => !m.user.githubLogin)
+    .map((m) => m.user.name ?? 'unnamed member')
+
+  return (
+    <StaffAccessPanel
+      classroomId={classroomId}
+      assignmentId={assignmentId}
+      orgLogin={orgLogin}
+      teamSlug={classroom.staffTeamSlug}
+      staffCount={classroom.members.length}
+      unlinkedStaff={unlinked}
+      repoCount={repoCount}
+    />
+  )
+}
+
 async function StaffProjectBoardSection({
   assignmentId,
   orgLogin,

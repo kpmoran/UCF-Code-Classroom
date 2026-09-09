@@ -935,6 +935,35 @@ content-creating rate budget.
 Note that a student who is already a member of the organization never gets an invitation
 at all — they are added directly, and their row has no invitation id from the start.
 
+## Staff access to student repositories
+
+Worth stating explicitly, because the app's own roles imply otherwise:
+`ClassroomRole.TA` governs what someone can see in *this application*. It grants
+nothing on GitHub. Provisioning adds exactly one collaborator — the student — so an
+instructor can read student work only by being an organization owner, and a TA who
+is a plain organization member can read none of it. The symptom is a TA reporting
+that every repository 404s, which reads as a bug rather than as a permission that
+was never granted.
+
+The **Staff access** panel in an assignment's Settings tab fixes that. It creates
+one org team per classroom (`<course>-<term>-staff`), puts every `INSTRUCTOR` and
+`TA` in it, and grants the team `push` on each assignment repository. New
+repositories are granted as students accept, so it only needs running again when
+staff change.
+
+A team rather than direct collaborators, for two reasons that both worsen with
+class size: granting a team is one write per repository regardless of how many staff
+there are, where collaborators is staff × repositories against the same
+content-creation budget as provisioning; and a TA joining in week six is added to
+the team once instead of to every repository that already exists. Revoking is one
+team removal rather than forty.
+
+Two failure modes the panel reports rather than hides. Creating an org team needs
+the **organization-owner credential**, not the App's own token — the same
+constraint group assignments hit — and a staff member with **no linked GitHub
+account** cannot be added to anything, which is the reason a TA can still see
+nothing after the button reports success.
+
 ## Deadlines
 
 A sweep runs every five minutes rather than a job scheduled per deadline, so it
