@@ -34,6 +34,7 @@ export function StaffAccessPanel({
   staffCount,
   unlinkedStaff,
   repoCount,
+  assignmentCount,
 }: {
   classroomId: string
   assignmentId: string
@@ -42,6 +43,7 @@ export function StaffAccessPanel({
   staffCount: number
   unlinkedStaff: string[]
   repoCount: number
+  assignmentCount: number
 }) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
@@ -65,7 +67,10 @@ export function StaffAccessPanel({
       const { queued, synced, unlinked } = result.data
       const parts = [`${synced} staff member${synced === 1 ? '' : 's'} on the team`]
       if (queued > 0) {
-        const minutes = Math.ceil(queued / 2)
+        // Matches PER_MINUTE in the action. Ten a minute, so a 40-repository course
+        // is about four minutes rather than the twenty an earlier pacing would have
+        // taken.
+        const minutes = Math.ceil(queued / 10)
         parts.push(
           `granting access to ${queued} repositor${queued === 1 ? 'y' : 'ies'}, about ${minutes} minute${minutes === 1 ? '' : 's'}`,
         )
@@ -89,7 +94,8 @@ export function StaffAccessPanel({
               <CardTitle>Staff access</CardTitle>
               <CardDescription>
                 Instructors and TAs get read and push access to every student
-                repository through a GitHub team in{' '}
+                repository <strong>in this classroom</strong> — across all
+                assignments, not just this one — through a GitHub team in{' '}
                 <span className="font-mono text-xs">{orgLogin}</span>. Being a TA in
                 this app grants nothing on GitHub by itself — repositories are created
                 with the student as their only collaborator, so without this a TA sees
@@ -105,7 +111,14 @@ export function StaffAccessPanel({
         <CardContent className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-3">
             <Stat value={staffCount} label="Instructors and TAs" tone={teamSlug ? 'ok' : undefined} />
-            <Stat value={repoCount} label="Repositories" />
+            <Stat
+              value={repoCount}
+              label={
+                assignmentCount === 1
+                  ? 'Repositories'
+                  : `Repositories, ${assignmentCount} assignments`
+              }
+            />
             <Stat value={unlinkedStaff.length} label="Without GitHub" />
           </div>
 

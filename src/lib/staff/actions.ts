@@ -8,6 +8,9 @@ import { GitHubDomainError } from '@/lib/github/errors'
 import { syncStaffTeam } from '@/lib/staff/team'
 import { enqueue, QUEUES } from '@/jobs/queue'
 
+/** Repository grants per minute. See the note at the enqueue below. */
+const PER_MINUTE = 10
+
 export type StaffAccessActionResult<T = void> =
   | { ok: true; data: T }
   | { ok: false; error: string }
@@ -53,11 +56,21 @@ export async function grantStaffAccess(
     return { ok: false, error: message }
   }
 
-  // Every repository that exists, not only ones missing access: adding a team is
-  // idempotent, and re-running is how a classroom whose staff changed gets fixed.
+  /*
+   * Every repository in the classroom, not just this assignment's.
+   *
+   * The team is per classroom — someone is a TA for the course, not for one
+   * assignment — so scoping the grant to the assignment whose page you happen to be
+   * on would mean pressing this once per assignment to express a single fact. A
+   * course a few weeks in has repositories across several assignments, and the
+   * missing ones would be exactly the older assignments nobody thinks to revisit.
+   *
+   * Every repository rather than only ones lacking access, because adding a team is
+   * idempotent and re-running is how a classroom whose staff changed gets fixed.
+   */
   const repos = await db.assignmentRepo.findMany({
     where: {
-      assignment: assignmentId ? { id: assignmentId } : { classroomId: classroom.id },
+      assignment: { classroomId: classroom.id },
       fullName: { not: null },
       status: 'READY',
     },
@@ -69,9 +82,17 @@ export async function grantStaffAccess(
     const id = await enqueue(
       QUEUES.grantStaffRepoAccess,
       { assignmentRepoId: repo.id },
-      // Two a minute, the same pacing as the board backfill, so a whole class does
-      // not spend the minute's budget at once.
-      { startAfterSeconds: Math.floor(index / 2) * 60 },
+      /*
+       * Ten a minute. One write per repository against a 60-a-minute budget, so this
+       * uses about a sixth of it and leaves room for students accepting at the same
+       * time.
+       *
+       * Not the two a minute the board backfill uses: that pacing was set when the
+       * budget was six a minute and a board cost two writes, and copying it here
+       * would have made a forty-repository course take twenty minutes to do four
+       * minutes of work.
+       */
+      { startAfterSeconds: Math.floor(index / PER_MINUTE) * 60 },
     )
     // Count what pg-boss accepted rather than what we asked for; send() returns null
     // when it declines, and reporting the intended number makes a silent failure

@@ -311,6 +311,56 @@ test('the staff access panel names a TA who has not linked GitHub', async ({
   // The copy has to say that the app's TA role is not GitHub access, because that
   // assumption is what sends people looking in the wrong place.
   await expect(panel.getByText(/grants nothing on GitHub by itself/)).toBeVisible()
+
+  // And that the grant covers the classroom, not just the assignment being viewed.
+  // Scoping it to one assignment would mean pressing this once per assignment to
+  // express a single fact about who the staff are.
+  await expect(panel.getByText(/across all\s+assignments, not just this one/)).toBeVisible()
+})
+
+test('the staff panel counts every repository in the classroom, not just this assignment', async ({
+  page,
+  context,
+}) => {
+  /*
+   * A course a few weeks in has repositories spread over several assignments. The
+   * panel first counted only the assignment being viewed, which understated the work
+   * — a 40-repository course reading as 12 — and the missing ones would have been the
+   * older assignments nobody thinks to revisit.
+   */
+  const { instructor } = await seedClassroom({ deadline: null })
+
+  const second = await db.assignment.create({
+    data: {
+      classroomId,
+      title: 'E2E Staff Second Assignment',
+      slug: 'e2e-staff-second',
+      type: 'INDIVIDUAL',
+      repoPrefix: 'e2edl2',
+      publishedAt: new Date(),
+    },
+  })
+
+  // Two repositories on this assignment, one on the other. All three are in scope.
+  for (const [i, assignment] of [assignmentId, assignmentId, second.id].entries()) {
+    const student = await seedSession(`e2e-staff-count-${i}`)
+    await db.assignmentRepo.create({
+      data: {
+        assignmentId: assignment,
+        userId: student.id,
+        status: 'READY',
+        fullName: `${ORG}/e2edl-count-${i}`,
+      },
+    })
+  }
+
+  await applySession(context, instructor)
+  await page.goto(`/classrooms/${SLUG}/assignments/${assignmentId}`)
+  await openSettingsTab(page)
+
+  const panel = page.getByRole('region', { name: 'Staff access' })
+  await expect(panel.getByText('Repositories, 2 assignments')).toBeVisible()
+  await expect(panel.getByText('3', { exact: true })).toBeVisible()
 })
 
 test('a student never sees the staff access panel', async ({ page, context }) => {

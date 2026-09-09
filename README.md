@@ -947,9 +947,16 @@ was never granted.
 
 The **Staff access** panel in an assignment's Settings tab fixes that. It creates
 one org team per classroom (`<course>-<term>-staff`), puts every `INSTRUCTOR` and
-`TA` in it, and grants the team `push` on each assignment repository. New
-repositories are granted as students accept, so it only needs running again when
-staff change.
+`TA` in it, and grants the team `push` on every repository **in the classroom** —
+across all assignments, not only the one whose page you are on, because the team is
+a fact about the course rather than about one assignment. New repositories are
+granted as students accept, so it only needs running again when staff change.
+
+Grants are paced at ten a minute: one write each against the 60-a-minute budget,
+so a 40-repository course finishes in about four minutes. Deliberately not the two
+a minute the board backfill uses — that number was set when the budget was six a
+minute and a board cost two writes, and reusing it here turned four minutes of work
+into twenty.
 
 A team rather than direct collaborators, for two reasons that both worsen with
 class size: granting a team is one write per repository regardless of how many staff

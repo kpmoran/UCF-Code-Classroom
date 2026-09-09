@@ -778,7 +778,7 @@ async function StaffAccessSection({
   classroomId: string
   orgLogin: string
 }) {
-  const [classroom, repoCount] = await Promise.all([
+  const [classroom, repoCount, assignmentCount] = await Promise.all([
     db.classroom.findUniqueOrThrow({
       where: { id: classroomId },
       select: {
@@ -789,9 +789,13 @@ async function StaffAccessSection({
         },
       },
     }),
+    // Classroom-wide, matching what the button actually grants. Counting only this
+    // assignment's repositories would understate the work and, on a course a few
+    // weeks in, make a 40-repository grant look like a 12-repository one.
     db.assignmentRepo.count({
-      where: { assignmentId, status: 'READY', fullName: { not: null } },
+      where: { assignment: { classroomId }, status: 'READY', fullName: { not: null } },
     }),
+    db.assignment.count({ where: { classroomId } }),
   ])
 
   // Surfaced separately because it is the answer to "the button said it worked and
@@ -810,6 +814,7 @@ async function StaffAccessSection({
       staffCount={classroom.members.length}
       unlinkedStaff={unlinked}
       repoCount={repoCount}
+      assignmentCount={assignmentCount}
     />
   )
 }
