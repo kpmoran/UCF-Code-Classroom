@@ -7,7 +7,12 @@ import { redirect } from 'next/navigation'
 import { requireClassroomRole, requireInstructor, requireUser } from '@/lib/auth/dal'
 import { db } from '@/lib/db'
 import { GitHubDomainError } from '@/lib/github/errors'
-import { getRepo, listTemplateRepos, validateTemplate } from '@/lib/github/operations/repos'
+import {
+  getRepo,
+  listOrgRepos,
+  listTemplateRepos,
+  validateTemplate,
+} from '@/lib/github/operations/repos'
 import { canAdoptRepo } from '@/lib/repos/adopt'
 import { estimateProvisioningMs, formatDuration } from '@/lib/github/rateLimiter'
 import { enqueue, enqueueMany, QUEUES } from '@/jobs/queue'
@@ -48,6 +53,32 @@ export async function getTemplateSuggestions(
   } catch {
     // An empty list degrades to a plain text field, which is the documented
     // fallback. A GitHub outage must not stop an assignment being created.
+    return []
+  }
+}
+
+/**
+ * Every repository in the organization, for the pickers that assign an existing one.
+ *
+ * A separate round trip for the same reason as `getTemplateSuggestions`: this is a
+ * convenience over a field that already accepts free text, so it must not be on the
+ * path that renders the page. Callers fetch it once, the first time someone uses a
+ * picker, and share the result across every row on the screen — one request per
+ * visit rather than one per student.
+ */
+export async function getOrgRepoSuggestions(
+  classroomId: string,
+): Promise<Array<{ fullName: string; name: string }>> {
+  // Same authorization as assigning one: this reveals private repository names, so
+  // it cannot be looser than the panel it serves.
+  const { classroom } = await requireInstructor(classroomId)
+
+  try {
+    const repos = await listOrgRepos(classroom.installationId, classroom.githubOrgLogin)
+    return repos.map((r) => ({ fullName: r.fullName, name: r.name }))
+  } catch {
+    // Degrades to a plain text field, which still works: the field accepts any
+    // owner/name and the server verifies it on submit.
     return []
   }
 }

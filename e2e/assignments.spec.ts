@@ -151,6 +151,82 @@ for (const type of ['Individual', 'Group'] as const) {
   })
 }
 
+/**
+ * The repository type-ahead on the Assign repositories panel.
+ *
+ * Against the real organization, because the value of this feature is entirely in
+ * whether it finds repositories that are actually there — a mocked list would
+ * assert that the component renders what it was handed, which was never in doubt.
+ */
+test('assigning a repository suggests the organization’s repositories as you type', async ({
+  page,
+  context,
+}) => {
+  const assignment = await db.assignment.create({
+    data: {
+      classroomId,
+      title: 'E2E Existing Repo Picker',
+      slug: 'e2e-existing-repo-picker',
+      type: 'INDIVIDUAL',
+      repoSource: 'EXISTING',
+      repoPrefix: PREFIX,
+      visibility: 'PRIVATE',
+      studentPermission: 'PUSH',
+      publishedAt: new Date(),
+    },
+  })
+
+  /*
+   * A distinct login, not VERIFY_USER — which defaults to the same account the
+   * instructor signs in as. Making that account a STUDENT of this classroom
+   * downgrades the instructor and renders the student view, where this panel does
+   * not exist at all. Nothing here needs the student to own a real GitHub account:
+   * the panel lists roster entries, and no repository is provisioned.
+   */
+  const student = await seedSession('e2e-picker-student')
+  await db.classroomMember.create({
+    data: { classroomId, userId: student.id, role: 'STUDENT' },
+  })
+  await db.rosterEntry.create({
+    data: {
+      classroomId,
+      displayName: 'Picker, Student',
+      sisUserId: '39600001',
+      sisLoginId: 'ep600001',
+      rawColumns: {},
+      claimedByUserId: student.id,
+      claimedAt: new Date(),
+    },
+  })
+
+  const instructor = await seedSession('kpmoran', { isSiteAdmin: true })
+  await applySession(context, instructor)
+  await page.goto(`/classrooms/${SLUG}/assignments/${assignment.id}`)
+
+  const field = page.getByLabel('Repository for Picker, Student')
+  await expect(field).toBeVisible()
+
+  /*
+   * Typing a fragment, not a prefix. Every repository here begins with the
+   * organization login, so a prefix match would find nothing — which is the whole
+   * reason this is a combobox over a substring filter rather than a datalist.
+   */
+  await field.click()
+  await field.fill('verify-temp')
+
+  const option = page.getByRole('option', { name: TEMPLATE, exact: true })
+  await expect(option).toBeVisible({ timeout: 30_000 })
+
+  await option.click()
+  await expect(field).toHaveValue(`${ORG}/${TEMPLATE}`)
+
+  // A fragment that matches nothing says so, rather than silently showing an empty
+  // menu that looks like the lookup failed.
+  await field.fill('definitely-not-a-repo-9z8y7x')
+  await expect(page.getByText(/matches “definitely-not-a-repo-9z8y7x”/)).toBeVisible()
+  await expect(page.getByRole('option')).toHaveCount(0)
+})
+
 test('a student accepts and the worker provisions a real repository', async ({
   page,
   context,

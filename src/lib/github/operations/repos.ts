@@ -113,6 +113,30 @@ async function listTemplateReposByPaging(
   return repos.map(toSummary).filter((r) => r.isTemplate)
 }
 
+/**
+ * Every repository in the org, newest activity first — for the pickers that assign
+ * an existing repository to a student or a team.
+ *
+ * Paged rather than searched, deliberately, and it is the opposite call from
+ * `listTemplateRepos` above. Search cannot do what this needs: GitHub's search
+ * index matches whole tokens, so typing `atl` would not find `cen5016-team-atlas`,
+ * and partial typing is the entire point of a type-ahead. Filtering happens on the
+ * client against the full list, which matches on any substring.
+ *
+ * The cost is real and grows — a classroom org gains a repository per student per
+ * assignment — so callers fetch this **once per page and only when the picker is
+ * first used**, never per keystroke and never during a page render.
+ */
+export async function listOrgRepos(
+  installationId: bigint,
+  org: string,
+): Promise<RepoSummary[]> {
+  const repos = await githubRead(`list repos for org ${org}`, installationId, (octokit) =>
+    octokit.paginate(octokit.rest.repos.listForOrg, { org, per_page: 100, sort: 'updated' }),
+  )
+  return repos.map(toSummary)
+}
+
 /** Every repository name in the org, for collision-free naming. */
 export async function listOrgRepoNames(
   installationId: bigint,
