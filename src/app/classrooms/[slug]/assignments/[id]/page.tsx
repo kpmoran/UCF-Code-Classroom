@@ -7,6 +7,7 @@ import { AutogradingPanel } from '@/components/autograding-panel'
 import { DeadlinePanel } from '@/components/deadline-panel'
 import { FeedbackPrPanel } from '@/components/feedback-pr-panel'
 import { ProjectBoardPanel } from '@/components/project-board-panel'
+import { AssignStudentReposPanel } from '@/components/assign-student-repos-panel'
 import { InstructorTeamPanel } from '@/components/instructor-team-panel'
 import { TeamFormationPanel } from '@/components/team-formation-panel'
 import { SiteHeader } from '@/components/site-header'
@@ -54,6 +55,7 @@ export default async function AssignmentPage(
       id: true,
       title: true,
       type: true,
+      repoSource: true,
       templateOwner: true,
       templateRepo: true,
       repoPrefix: true,
@@ -139,6 +141,7 @@ export default async function AssignmentPage(
             userId={user.id}
             githubLogin={user.githubLogin}
             orgLogin={classroom.githubOrgLogin}
+            repoSource={assignment.repoSource}
             classroomId={classroom.id}
             deadline={assignment.deadline}
             lockOnDeadline={assignment.lockOnDeadline}
@@ -160,6 +163,7 @@ async function StaffView({
     id: string
     title: string
     type: 'INDIVIDUAL' | 'GROUP'
+    repoSource: 'CREATE' | 'EXISTING'
     publishedAt: Date | null
     feedbackPrEnabled: boolean
     autogradeEnabled: boolean
@@ -269,9 +273,17 @@ async function StaffView({
 
   const repositories = (
     <>
+      {assignment.type === 'INDIVIDUAL' && assignment.repoSource === 'EXISTING' ? (
+        <StaffAssignRepoSection
+          assignmentId={assignment.id}
+          classroomId={classroomId}
+          orgLogin={orgLogin}
+        />
+      ) : null}
       <AssignmentStaffPanel
         assignmentId={assignment.id}
       assignmentType={assignment.type}
+      repoSource={assignment.repoSource}
       published={assignment.publishedAt !== null}
       classroomSlug={classroomSlug}
       rosterClaimed={rosterClaimed}
@@ -352,7 +364,14 @@ async function StaffTeamSection({
   assignmentId: string
   classroomId: string
 }) {
-  const [teams, claimedEntries] = await Promise.all([
+  const [assignment, teams, claimedEntries] = await Promise.all([
+    db.assignment.findUniqueOrThrow({
+      where: { id: assignmentId },
+      select: {
+        repoSource: true,
+        classroom: { select: { githubOrgLogin: true } },
+      },
+    }),
     db.team.findMany({
       where: { assignmentId },
       orderBy: { name: 'asc' },
@@ -390,6 +409,8 @@ async function StaffTeamSection({
   return (
     <InstructorTeamPanel
       assignmentId={assignmentId}
+      orgLogin={assignment.classroom.githubOrgLogin}
+      repoSource={assignment.repoSource}
       teams={teams.map((t) => ({
         id: t.id,
         name: t.name,
@@ -418,6 +439,7 @@ async function StudentView({
   userId,
   githubLogin,
   orgLogin,
+  repoSource,
   classroomId,
   deadline,
   lockOnDeadline,
@@ -426,6 +448,7 @@ async function StudentView({
   userId: string
   githubLogin: string | null
   orgLogin: string
+  repoSource: 'CREATE' | 'EXISTING'
   classroomId: string
   deadline: Date | null
   lockOnDeadline: boolean
@@ -479,6 +502,7 @@ async function StudentView({
       hasRosterEntry={rosterEntry !== null}
       githubLogin={githubLogin}
       orgLogin={orgLogin}
+      repoSource={repoSource}
       repo={
         repo
           ? {
@@ -882,6 +906,73 @@ async function StaffFeedbackSection({ assignmentId }: { assignmentId: string }) 
       withPr={withPr}
       pushedWithoutPr={pushedWithoutPr}
       awaitingFirstPush={awaitingFirstPush}
+    />
+  )
+}
+
+/**
+ * Assigning existing repositories to students, for an individual assignment whose
+ * `repoSource` is EXISTING.
+ *
+ * Lists every student who has claimed a roster entry, not only those who already
+ * have a repository — the whole point of the panel is the ones who do not, and on
+ * this kind of assignment nothing else will ever create their row.
+ */
+async function StaffAssignRepoSection({
+  assignmentId,
+  classroomId,
+  orgLogin,
+}: {
+  assignmentId: string
+  classroomId: string
+  orgLogin: string
+}) {
+  const [claimedEntries, repos] = await Promise.all([
+    db.rosterEntry.findMany({
+      where: { classroomId, removedAt: null, claimedByUserId: { not: null } },
+      orderBy: { displayName: 'asc' },
+      select: {
+        displayName: true,
+        claimedByUserId: true,
+        claimedByUser: { select: { githubLogin: true, name: true } },
+      },
+    }),
+    db.assignmentRepo.findMany({
+      where: { assignmentId, userId: { not: null } },
+      select: {
+        userId: true,
+        status: true,
+        fullName: true,
+        htmlUrl: true,
+        failureReason: true,
+      },
+    }),
+  ])
+
+  const repoByUser = new Map(repos.map((r) => [r.userId!, r]))
+
+  return (
+    <AssignStudentReposPanel
+      assignmentId={assignmentId}
+      orgLogin={orgLogin}
+      students={claimedEntries.map((entry) => {
+        const repo = repoByUser.get(entry.claimedByUserId!)
+        return {
+          userId: entry.claimedByUserId!,
+          // Roster name first, for the same reason the team panel uses it: students
+          // are recognised as the class list spells them, not as GitHub does.
+          name: entry.displayName || entry.claimedByUser?.name || 'Unknown',
+          githubLogin: entry.claimedByUser?.githubLogin ?? null,
+          repo: repo
+            ? {
+                status: repo.status,
+                fullName: repo.fullName,
+                htmlUrl: repo.htmlUrl,
+                failureReason: repo.failureReason,
+              }
+            : null,
+        }
+      })}
     />
   )
 }

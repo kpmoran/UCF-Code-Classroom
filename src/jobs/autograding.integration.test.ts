@@ -234,8 +234,8 @@ describe('autograding end to end', () => {
       workflowRunId: String(run.id),
     })
 
-    const stored = await db.autogradeRun.findUniqueOrThrow({
-      where: { workflowRunId: run.id },
+    const stored = await db.autogradeRun.findFirstOrThrow({
+      where: { workflowRunId: run.id, assignmentRepoId: repoId },
       include: { testResults: { orderBy: { name: 'asc' } } },
     })
 
@@ -272,6 +272,69 @@ describe('autograding end to end', () => {
     expect(raw.warnings).toEqual([])
   }, 600_000)
 
+  it('gives every student sharing the repository the same score, from one run', async () => {
+    /*
+     * The individual-assignment case where several students are assigned one existing
+     * repository. Results describe the repository, so one workflow run has to become a
+     * grade for each of them — with the old global unique on `workflowRunId` exactly
+     * one student got a score and the rest looked as though they had never submitted.
+     *
+     * Reuses this suite's provisioned repository and its real Actions run rather than
+     * paying for a second one; only the extra row is new. The second student is a
+     * database-only user because ingestion touches no student's GitHub identity.
+     */
+    const { repoId, repoName } = await provision()
+    const run = await waitForCompletedRun(repoName)
+
+    const first = await db.assignmentRepo.findUniqueOrThrow({ where: { id: repoId } })
+
+    const second = await db.user.create({
+      data: { name: 'Sharing Student', email: 'autograde-shared@integration.invalid' },
+      select: { id: true },
+    })
+    const sharedRow = await db.assignmentRepo.create({
+      data: {
+        assignmentId,
+        userId: second.id,
+        status: RepoStatus.READY,
+        fullName: first.fullName,
+        githubRepoId: first.githubRepoId,
+      },
+      select: { id: true },
+    })
+
+    try {
+      await ingestAutogradeRun({
+        githubRepoId: String(first.githubRepoId),
+        workflowRunId: String(run.id),
+      })
+
+      const runs = await db.autogradeRun.findMany({
+        where: { workflowRunId: run.id },
+        include: { testResults: true },
+      })
+
+      console.log(`\n  one run ingested into ${runs.length} row(s)`)
+
+      expect(runs).toHaveLength(2)
+      expect(new Set(runs.map((r) => r.assignmentRepoId))).toEqual(
+        new Set([repoId, sharedRow.id]),
+      )
+
+      // Both students, the same score, and each with their own test rows — not one
+      // set of results shared by reference.
+      for (const stored of runs) {
+        expect(stored.status).toBe(AutogradeStatus.COMPLETED)
+        expect(stored.score).toBe(30)
+        expect(stored.maxScore).toBe(100)
+        expect(stored.testResults).toHaveLength(2)
+      }
+    } finally {
+      await db.assignmentRepo.deleteMany({ where: { userId: second.id } })
+      await db.user.delete({ where: { id: second.id } })
+    }
+  }, 600_000)
+
   it('is idempotent — re-ingesting the same run does not duplicate results', async () => {
     const { repoId, repoName } = await provision()
     const run = await waitForCompletedRun(repoName)
@@ -300,8 +363,8 @@ describe('autograding end to end', () => {
     // the upload step, which is the common real case.
     await ingestAutogradeRun({ githubRepoId, workflowRunId: '999999999999' })
 
-    const stored = await db.autogradeRun.findUnique({
-      where: { workflowRunId: BigInt('999999999999') },
+    const stored = await db.autogradeRun.findFirst({
+      where: { workflowRunId: BigInt('999999999999'), assignmentRepoId: repoId },
     })
     expect(stored?.status).toBe(AutogradeStatus.FAILED)
     const raw = stored!.rawResults as { error?: string }

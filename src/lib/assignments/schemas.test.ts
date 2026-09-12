@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseDeadline, parseTemplateReference } from './schemas'
+import { parseDeadline, parseRepoReference } from './schemas'
 
-describe('parseTemplateReference', () => {
+describe('parseRepoReference', () => {
   it('accepts owner/repo', () => {
-    expect(parseTemplateReference('ucf-org/hw1-template', 'fallback')).toEqual({
+    expect(parseRepoReference('ucf-org/hw1-template', 'fallback')).toEqual({
       owner: 'ucf-org',
       repo: 'hw1-template',
     })
@@ -12,14 +12,14 @@ describe('parseTemplateReference', () => {
 
   it('accepts a bare repo name using the classroom org', () => {
     // The common case: the template lives in the classroom's own organization.
-    expect(parseTemplateReference('hw1-template', 'ucf-org')).toEqual({
+    expect(parseRepoReference('hw1-template', 'ucf-org')).toEqual({
       owner: 'ucf-org',
       repo: 'hw1-template',
     })
   })
 
   it('accepts a full GitHub URL pasted from the browser', () => {
-    expect(parseTemplateReference('https://github.com/ucf-org/hw1-template', 'fallback')).toEqual({
+    expect(parseRepoReference('https://github.com/ucf-org/hw1-template', 'fallback')).toEqual({
       owner: 'ucf-org',
       repo: 'hw1-template',
     })
@@ -27,25 +27,25 @@ describe('parseTemplateReference', () => {
 
   it('accepts a URL with extra path segments, query or fragment', () => {
     expect(
-      parseTemplateReference('https://github.com/ucf-org/hw1-template/tree/main', 'x'),
+      parseRepoReference('https://github.com/ucf-org/hw1-template/tree/main', 'x'),
     ).toEqual({ owner: 'ucf-org', repo: 'hw1-template' })
-    expect(parseTemplateReference('github.com/ucf-org/hw1-template?tab=readme', 'x')).toEqual({
+    expect(parseRepoReference('github.com/ucf-org/hw1-template?tab=readme', 'x')).toEqual({
       owner: 'ucf-org',
       repo: 'hw1-template',
     })
   })
 
   it('strips a trailing .git', () => {
-    expect(parseTemplateReference('ucf-org/hw1-template.git', 'x')).toEqual({
+    expect(parseRepoReference('ucf-org/hw1-template.git', 'x')).toEqual({
       owner: 'ucf-org',
       repo: 'hw1-template',
     })
   })
 
   it('rejects empty or over-deep input', () => {
-    expect(parseTemplateReference('', 'x')).toBeNull()
-    expect(parseTemplateReference('   ', 'x')).toBeNull()
-    expect(parseTemplateReference('a/b/c/d', 'x')).toBeNull()
+    expect(parseRepoReference('', 'x')).toBeNull()
+    expect(parseRepoReference('   ', 'x')).toBeNull()
+    expect(parseRepoReference('a/b/c/d', 'x')).toBeNull()
   })
 })
 

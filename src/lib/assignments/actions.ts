@@ -7,7 +7,8 @@ import { redirect } from 'next/navigation'
 import { requireClassroomRole, requireInstructor, requireUser } from '@/lib/auth/dal'
 import { db } from '@/lib/db'
 import { GitHubDomainError } from '@/lib/github/errors'
-import { listTemplateRepos, validateTemplate } from '@/lib/github/operations/repos'
+import { getRepo, listTemplateRepos, validateTemplate } from '@/lib/github/operations/repos'
+import { canAdoptRepo } from '@/lib/repos/adopt'
 import { estimateProvisioningMs, formatDuration } from '@/lib/github/rateLimiter'
 import { enqueue, enqueueMany, QUEUES } from '@/jobs/queue'
 import { buildClassroomSlug, dedupeSlug } from '@/lib/slug'
@@ -16,7 +17,7 @@ import { callsPerRepo } from './estimate'
 import {
   createAssignmentSchema,
   parseDeadline,
-  parseTemplateReference,
+  parseRepoReference,
   type AssignmentActionResult,
 } from './schemas'
 
@@ -72,6 +73,7 @@ export async function createAssignment(
     projectBoardEnabled: formData.get('projectBoardEnabled') === 'on',
     maxTeams: formData.get('maxTeams') || undefined,
     maxTeamSize: formData.get('maxTeamSize') || undefined,
+    repoSource: formData.get('repoSource') || undefined,
     publish: formData.get('publish') === 'on',
   })
 
@@ -99,15 +101,24 @@ export async function createAssignment(
   }
 
   /*
+   * A template describes a repository this app is about to create. An assignment
+   * that adopts repositories which already exist creates none, so the field is
+   * dropped rather than stored — a template recorded there would be a setting that
+   * silently does nothing, which is worse than no setting at all.
+   */
+  const adoptsExistingRepos = input.repoSource === 'EXISTING'
+
+  /*
    * No template means students get empty repositories. Nothing to parse and nothing
    * to check against GitHub, so both are skipped rather than made to tolerate an
    * empty string — a blank field is a decision, not a missing value.
    */
-  const template = input.template
-    ? parseTemplateReference(input.template, classroom.githubOrgLogin)
-    : null
+  const template =
+    input.template && !adoptsExistingRepos
+      ? parseRepoReference(input.template, classroom.githubOrgLogin)
+      : null
 
-  if (input.template && !template) {
+  if (input.template && !adoptsExistingRepos && !template) {
     return {
       ok: false,
       error: 'Enter the template as owner/repo, or paste its GitHub URL.',
@@ -158,6 +169,7 @@ export async function createAssignment(
       projectBoardEnabled: input.projectBoardEnabled,
       maxTeams: input.type === 'GROUP' ? (input.maxTeams ?? null) : null,
       maxTeamSize: input.type === 'GROUP' ? (input.maxTeamSize ?? null) : null,
+      repoSource: input.repoSource,
       publishedAt: input.publish ? new Date() : null,
     },
     select: { id: true, title: true },
@@ -237,6 +249,7 @@ export async function acceptAssignment(
     select: {
       id: true,
       type: true,
+      repoSource: true,
       publishedAt: true,
       classroomId: true,
       classroom: { select: { slug: true, archivedAt: true } },
@@ -255,6 +268,21 @@ export async function acceptAssignment(
   }
   if (assignment.type !== 'INDIVIDUAL') {
     return { ok: false, error: 'This is a group assignment — join or create a team instead.' }
+  }
+
+  /*
+   * Nothing for a student to accept when the repositories already exist: which one
+   * they work in is the instructor's decision, and there is none to create. Letting
+   * the row be made here would only queue a job that fails for want of a repository,
+   * and repeat that on every click.
+   */
+  if (assignment.repoSource === 'EXISTING') {
+    return {
+      ok: false,
+      error:
+        'Your instructor assigns the repository for this assignment. It will appear here once ' +
+        'they have.',
+    }
   }
 
   // A student must have claimed a roster entry: otherwise there is no way to
@@ -313,6 +341,7 @@ export async function bulkProvision(
     select: {
       id: true,
       type: true,
+      repoSource: true,
       classroomId: true,
       feedbackPrEnabled: true,
       autogradeEnabled: true,
@@ -327,6 +356,20 @@ export async function bulkProvision(
     return {
       ok: false,
       error: 'Bulk provisioning applies to individual assignments. Group repos follow team formation.',
+    }
+  }
+
+  /*
+   * There is nothing to provision in bulk when the repositories already exist: which
+   * student works in which one cannot be guessed, so the rows are created by
+   * assigning them one at a time.
+   */
+  if (assignment.repoSource === 'EXISTING') {
+    return {
+      ok: false,
+      error:
+        'This assignment uses repositories that already exist. Assign each student theirs ' +
+        'from the Repositories tab instead.',
     }
   }
   if (assignment.classroom.archivedAt) {
@@ -441,4 +484,166 @@ export async function retryFailedRepos(
 
   revalidatePath(`/classrooms/${assignment.classroom.slug}/assignments/${assignmentId}`)
   return { ok: true, data: { retried: failed.length } }
+}
+
+/**
+ * Instructor: assign a student a repository that already exists.
+ *
+ * The individual counterpart to `linkTeamRepo`, and the only way a row is created on
+ * an assignment whose `repoSource` is EXISTING — students cannot accept their way
+ * into one, because which repository they belong in is not something they can know.
+ *
+ * Several students may be assigned the *same* repository, deliberately: a shared
+ * course project, or a codebase a group works in together while being graded
+ * individually. Each keeps their own row, so access, extensions, the deadline lock
+ * and grades stay per-student; the rows just share a `fullName`. Nothing is refused
+ * for a repository being taken, which is the one place this differs from the team
+ * path.
+ */
+export async function assignStudentRepo(
+  formData: FormData,
+): Promise<AssignmentActionResult<{ shared: number }>> {
+  const assignmentId = String(formData.get('assignmentId') ?? '')
+  const studentUserId = String(formData.get('studentUserId') ?? '')
+  const raw = String(formData.get('repo') ?? '').trim()
+
+  const assignment = await db.assignment.findUnique({
+    where: { id: assignmentId },
+    select: {
+      id: true,
+      type: true,
+      repoSource: true,
+      classroomId: true,
+      classroom: {
+        select: {
+          slug: true,
+          archivedAt: true,
+          githubOrgLogin: true,
+          installationId: true,
+        },
+      },
+    },
+  })
+  if (!assignment) return { ok: false, error: 'That assignment no longer exists.' }
+
+  const { user } = await requireInstructor(assignment.classroomId)
+
+  if (assignment.classroom.archivedAt) {
+    return { ok: false, error: 'This classroom is archived. Restore it to change assignments.' }
+  }
+  if (assignment.type !== 'INDIVIDUAL') {
+    return { ok: false, error: 'This is a group assignment — link the team’s repository instead.' }
+  }
+  if (!raw) return { ok: false, error: 'Enter a repository as owner/name, or paste its URL.' }
+
+  const org = assignment.classroom.githubOrgLogin
+  const ref = parseRepoReference(raw, org)
+
+  // Sharing is allowed here, so no conflict is ever supplied — see the note above.
+  const rule = canAdoptRepo({
+    repoSource: assignment.repoSource,
+    orgLogin: org,
+    ref,
+    conflictsWith: null,
+  })
+  if (!rule.allowed) return { ok: false, error: rule.reason }
+  // Narrowing only: the rule already refused a null reference.
+  if (!ref) return { ok: false, error: 'Could not read that as a repository.' }
+
+  const student = await db.user.findUnique({
+    where: { id: studentUserId },
+    select: { id: true, githubLogin: true, name: true },
+  })
+  if (!student) return { ok: false, error: 'That student no longer exists.' }
+
+  /*
+   * A student with no linked GitHub account cannot be given access to anything, and
+   * the provisioning job would only fail on the same fact. Said here instead, where
+   * it is one message next to the row rather than a failed job to go and read.
+   */
+  if (!student.githubLogin) {
+    return {
+      ok: false,
+      error:
+        `${student.name ?? 'That student'} has not linked a GitHub account yet, so they cannot ` +
+        'be given access. Ask them to sign in and claim their roster entry first.',
+    }
+  }
+
+  const member = await db.classroomMember.findFirst({
+    where: { classroomId: assignment.classroomId, userId: studentUserId },
+    select: { id: true },
+  })
+  if (!member) return { ok: false, error: 'That student is not in this classroom.' }
+
+  let found
+  try {
+    found = await getRepo(assignment.classroom.installationId, ref.owner, ref.repo)
+  } catch (error) {
+    const message =
+      error instanceof GitHubDomainError ? error.userMessage : 'Could not reach GitHub.'
+    return { ok: false, error: message }
+  }
+
+  if (!found) {
+    return {
+      ok: false,
+      error:
+        `There is no repository called ${ref.owner}/${ref.repo}, or this app cannot see it. ` +
+        'Check the name, and that the GitHub App has access to it.',
+    }
+  }
+
+  /*
+   * Reassigning is allowed and leaves the previous repository alone — the student
+   * keeps whatever access they were granted there. Revoking it is a separate,
+   * deliberate act (Remove from assignment), for the same reason moving a student
+   * between teams does not strip their old team's access: cutting someone off from
+   * work they have already committed should never be a side effect of fixing a typo.
+   */
+  const row = await db.assignmentRepo.upsert({
+    where: { assignmentId_userId: { assignmentId, userId: studentUserId } },
+    create: {
+      assignmentId,
+      userId: studentUserId,
+      status: RepoStatus.QUEUED,
+      githubRepoId: found.id,
+      fullName: found.fullName,
+      htmlUrl: found.htmlUrl,
+    },
+    update: {
+      status: RepoStatus.QUEUED,
+      failureReason: null,
+      githubRepoId: found.id,
+      fullName: found.fullName,
+      htmlUrl: found.htmlUrl,
+    },
+    select: { id: true },
+  })
+
+  // Reported back so the instructor sees that a repository is shared, rather than
+  // discovering it when two students turn out to have identical grades.
+  const shared = await db.assignmentRepo.count({
+    where: { assignmentId, githubRepoId: found.id, NOT: { id: row.id } },
+  })
+
+  await db.auditLog.create({
+    data: {
+      classroomId: assignment.classroomId,
+      actorUserId: user.id,
+      action: 'assignment.assign_repo',
+      targetType: 'assignmentRepo',
+      targetId: row.id,
+      detail: { studentUserId, repo: found.fullName, sharedWith: shared },
+    },
+  })
+
+  await enqueue(
+    QUEUES.provisionIndividualRepo,
+    { assignmentRepoId: row.id },
+    { singletonKey: row.id },
+  )
+
+  revalidatePath(`/classrooms/${assignment.classroom.slug}/assignments/${assignmentId}`)
+  return { ok: true, data: { shared } }
 }

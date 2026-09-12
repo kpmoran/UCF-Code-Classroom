@@ -34,7 +34,9 @@ export async function createProjectBoard(job: CreateProjectBoardJob): Promise<vo
     where: { id: job.assignmentRepoId },
     select: {
       id: true,
+      assignmentId: true,
       fullName: true,
+      githubRepoId: true,
       projectUrl: true,
       projectNumber: true,
       failureReason: true,
@@ -65,11 +67,48 @@ export async function createProjectBoard(job: CreateProjectBoardJob): Promise<vo
 
   let stage: 'create' | 'share' = 'create'
 
+  /*
+   * Rows sharing this GitHub repository — the other students assigned the same one.
+   *
+   * A board is linked to a repository, not to a row, so these rows want *one* board
+   * between them rather than one each. Without this, three students on one
+   * repository produce three identically titled boards all linked to it, which is
+   * precisely the duplication the projectUrl check below was written to prevent —
+   * it just could not see across rows.
+   */
+  const siblings = repo.githubRepoId
+    ? await db.assignmentRepo.findMany({
+        where: {
+          githubRepoId: repo.githubRepoId,
+          assignmentId: repo.assignmentId,
+          NOT: { id: repo.id },
+        },
+        select: {
+          projectUrl: true,
+          projectNumber: true,
+          user: { select: { githubLogin: true } },
+        },
+      })
+    : []
+
+  const sharedBoard = siblings.find((s) => s.projectUrl && s.projectNumber !== null)
+
   try {
-    // 1. The board, unless one is already recorded. GitHub will happily create a
-    //    second project with the same title, so this must not be retried blindly.
+    // 1. The board, unless one is already recorded — on this row or on a row sharing
+    //    the repository. GitHub will happily create a second project with the same
+    //    title, so this must not be retried blindly.
     let projectNumber = repo.projectNumber
-    if (!repo.projectUrl) {
+
+    if (!repo.projectUrl && sharedBoard) {
+      await db.assignmentRepo.update({
+        where: { id: repo.id },
+        data: { projectUrl: sharedBoard.projectUrl, projectNumber: sharedBoard.projectNumber },
+      })
+      projectNumber = sharedBoard.projectNumber
+      console.log(
+        `[jobs] project board #${projectNumber} reused for ${repo.fullName} (shared repository)`,
+      )
+    } else if (!repo.projectUrl) {
       const repoNodeId = await repositoryNodeId(installationId, org, repoName)
       const board = await createLinkedProjectBoard({
         installationId,
@@ -94,9 +133,14 @@ export async function createProjectBoard(job: CreateProjectBoardJob): Promise<vo
         org,
         projectNumber,
         classroomId: repo.assignment.classroomId,
+        // Everyone the board belongs to: the team's members, or this student plus
+        // any other student assigned the same repository.
         studentLogins: repo.team
           ? repo.team.members.map((m) => m.user.githubLogin).filter((l): l is string => Boolean(l))
-          : [repo.user?.githubLogin].filter((l): l is string => Boolean(l)),
+          : [
+              repo.user?.githubLogin,
+              ...siblings.map((s) => s.user?.githubLogin),
+            ].filter((l): l is string => Boolean(l)),
       })
       // Logged even though nothing changed on a repeat run. Sharing an existing board
       // is the whole of the repair path and it used to print nothing at all, so a

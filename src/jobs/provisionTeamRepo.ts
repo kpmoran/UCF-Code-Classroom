@@ -10,6 +10,7 @@ import { ensureFeedbackBranch } from '@/lib/github/operations/pulls'
 import {
   createEmptyRepo,
   generateRepoFromTemplate,
+  getRepo,
   listOrgRepoNames,
 } from '@/lib/github/operations/repos'
 import {
@@ -34,9 +35,14 @@ import { ProvisionTeamRepoJob, QUEUES, enqueue } from './queue'
  *
  *   1. GitHub team          (looked up by slug before creating)
  *   2. Memberships          (upsert; pending until the student accepts)
- *   3. Repository           (name persisted before creation)
+ *   3. Repository           (created, or adopted — see below)
  *   4. Team → repo access   (GitHub upserts)
  *   5. Feedback PR          (optional, never fatal)
+ *
+ * Step 3 is the only one that differs between the two `repoSource` modes. Under
+ * CREATE the repository is generated from the template or created empty; under
+ * EXISTING it was linked by an instructor beforehand and is merely verified. Every
+ * step after it operates on `owner/name` and does not care which way it got there.
  *
  * Re-running this is also how a **late joiner** is added: the job is re-enqueued
  * when membership changes, and steps 1, 3 and 4 no-op while step 2 adds the new
@@ -57,6 +63,7 @@ export async function provisionTeamRepo(job: ProvisionTeamRepoJob): Promise<void
           id: true,
           title: true,
           repoPrefix: true,
+          repoSource: true,
           templateOwner: true,
           templateRepo: true,
           visibility: true,
@@ -166,50 +173,108 @@ export async function provisionTeamRepo(job: ProvisionTeamRepoJob): Promise<void
       })
     }
 
-    // 3. The repository. Name persisted first, so a crash resumes rather than
-    //    generating a second one.
-    const repoName = repo.fullName
-      ? repo.fullName.split('/')[1]
-      : dedupeRepoName(
-          buildTeamRepoName(assignment.repoPrefix, team.name),
-          await listOrgRepoNames(installationId, org),
-        )
+    // 3. The repository — created, or adopted.
+    let repoName: string
+    let created: { id: bigint; fullName: string; htmlUrl: string }
 
-    if (!repo.fullName) {
+    if (assignment.repoSource === 'EXISTING') {
+      /*
+       * Adopting a repository that already exists.
+       *
+       * `fullName` is not a resume marker here, it is the instructor's input: the
+       * link action wrote it and verified the repository then. Re-verified anyway,
+       * because the repository can be renamed, deleted or transferred between the
+       * link and this job, and every step below would otherwise fail one at a time
+       * with a 404 that says nothing about the cause.
+       *
+       * Never falls back to creating one. A repository conjured out of a typo is
+       * the failure this whole mode exists to avoid: it would look provisioned,
+       * collect the workflow and the team, and be empty at the deadline.
+       */
+      if (!repo.fullName) {
+        await markFailed(
+          repo.id,
+          'No repository has been linked to this team yet. Link the team\u2019s existing ' +
+            'repository from the Teams panel.',
+        )
+        return
+      }
+
+      const [linkedOwner, linkedName] = repo.fullName.split('/')
+      const found = await getRepo(installationId, linkedOwner, linkedName)
+      if (!found) {
+        await markFailed(
+          repo.id,
+          `${repo.fullName} no longer exists, or this app can no longer see it. Check the ` +
+            'repository on GitHub and link it again.',
+        )
+        return
+      }
+
+      repoName = linkedName
+      created = { id: found.id, fullName: found.fullName, htmlUrl: found.htmlUrl }
+
+      /*
+       * Visibility is deliberately left alone. Under CREATE the assignment's setting
+       * describes a repository this app is making; here it describes one that already
+       * has a history and an audience, and flipping a public project private — or the
+       * reverse — is not a side effect to bury in a provisioning job.
+       */
       await db.assignmentRepo.update({
         where: { id: repo.id },
-        data: { fullName: `${org}/${repoName}` },
+        data: { githubRepoId: found.id, fullName: found.fullName, htmlUrl: found.htmlUrl },
+      })
+    } else {
+      // Name persisted first, so a crash resumes rather than generating a second one.
+      repoName = repo.fullName
+        ? repo.fullName.split('/')[1]
+        : dedupeRepoName(
+            buildTeamRepoName(assignment.repoPrefix, team.name),
+            await listOrgRepoNames(installationId, org),
+          )
+
+      if (!repo.fullName) {
+        await db.assignmentRepo.update({
+          where: { id: repo.id },
+          data: { fullName: `${org}/${repoName}` },
+        })
+      }
+
+      // From a template when there is one, otherwise empty — see createEmptyRepo.
+      const generated =
+        assignment.templateOwner && assignment.templateRepo
+          ? await generateRepoFromTemplate({
+              installationId,
+              templateOwner: assignment.templateOwner,
+              templateRepo: assignment.templateRepo,
+              owner: org,
+              name: repoName,
+              private: assignment.visibility === 'PRIVATE',
+              description: `${team.name} — ${assignment.title}`,
+            })
+          : await createEmptyRepo({
+              installationId,
+              owner: org,
+              name: repoName,
+              private: assignment.visibility === 'PRIVATE',
+              description: `${team.name} — ${assignment.title}`,
+            })
+
+      created = {
+        id: generated.repo.id,
+        fullName: generated.repo.fullName,
+        htmlUrl: generated.repo.htmlUrl,
+      }
+
+      await db.assignmentRepo.update({
+        where: { id: repo.id },
+        data: {
+          githubRepoId: created.id,
+          fullName: created.fullName,
+          htmlUrl: created.htmlUrl,
+        },
       })
     }
-
-    // From a template when there is one, otherwise empty — see createEmptyRepo.
-    const { repo: created } =
-      assignment.templateOwner && assignment.templateRepo
-        ? await generateRepoFromTemplate({
-            installationId,
-            templateOwner: assignment.templateOwner,
-            templateRepo: assignment.templateRepo,
-            owner: org,
-            name: repoName,
-            private: assignment.visibility === 'PRIVATE',
-            description: `${team.name} — ${assignment.title}`,
-          })
-        : await createEmptyRepo({
-            installationId,
-            owner: org,
-            name: repoName,
-            private: assignment.visibility === 'PRIVATE',
-            description: `${team.name} — ${assignment.title}`,
-          })
-
-    await db.assignmentRepo.update({
-      where: { id: repo.id },
-      data: {
-        githubRepoId: created.id,
-        fullName: created.fullName,
-        htmlUrl: created.htmlUrl,
-      },
-    })
 
     // 4. Give the team access to the repository.
     await addTeamRepoAccess(

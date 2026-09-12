@@ -2,6 +2,7 @@ import 'server-only'
 
 import { AutogradeStatus, type Prisma } from '@prisma/client'
 
+import { alreadyFullyIngested, selectAutogradeTargets } from '@/lib/autograding/fanout'
 import {
   parseResults,
   reconcileWithConfiguredTests,
@@ -22,11 +23,18 @@ import type { IngestAutogradeRunJob } from './queue'
  * — most usefully — grading still works when the app was offline while the
  * workflow ran, because the artifact is still there to fetch afterwards.
  *
- * Idempotent on `workflowRunId`, which is unique in the schema: GitHub retries
- * webhook deliveries, and an instructor may re-sync manually at the same time.
+ * Idempotent on `(assignmentRepoId, workflowRunId)`, which is unique in the schema:
+ * GitHub retries webhook deliveries, and an instructor may re-sync manually at the
+ * same time.
+ *
+ * One GitHub repository can belong to several rows — an individual assignment whose
+ * students were each assigned the same existing repository. The artifact is fetched
+ * and parsed once and then written to every one of them, because a score recorded
+ * against only the first row would leave the other students looking as though they
+ * never submitted.
  */
 export async function ingestAutogradeRun(job: IngestAutogradeRunJob): Promise<void> {
-  const repo = await db.assignmentRepo.findFirst({
+  const repos = await db.assignmentRepo.findMany({
     where: { githubRepoId: BigInt(job.githubRepoId) },
     select: {
       id: true,
@@ -42,24 +50,33 @@ export async function ingestAutogradeRun(job: IngestAutogradeRunJob): Promise<vo
     },
   })
 
+  // Results belong to the repository, so every row grading it gets the same score.
+  // See selectAutogradeTargets for which rows those are, and why.
+  const targets = selectAutogradeTargets(repos)
+  const repo = targets[0]
+
   if (!repo?.fullName) {
-    console.warn(`[jobs] no repository for github id ${job.githubRepoId}; skipping autograde`)
+    if (repos.length === 0) {
+      console.warn(`[jobs] no repository for github id ${job.githubRepoId}; skipping autograde`)
+    }
     return
   }
-  if (!repo.assignment.autogradeEnabled) return
 
   const org = repo.assignment.classroom.githubOrgLogin
   const installationId = repo.assignment.classroom.installationId
   const repoName = repo.fullName.split('/')[1]
   const workflowRunId = BigInt(job.workflowRunId)
 
-  // Already ingested — a duplicate webhook delivery, or a manual re-sync racing
-  // the automatic one.
-  const existing = await db.autogradeRun.findUnique({
-    where: { workflowRunId },
-    select: { id: true, status: true },
+  // Already ingested — a duplicate webhook delivery, or a manual re-sync racing the
+  // automatic one.
+  const completedCount = await db.autogradeRun.count({
+    where: {
+      workflowRunId,
+      assignmentRepoId: { in: targets.map((t) => t.id) },
+      status: AutogradeStatus.COMPLETED,
+    },
   })
-  if (existing?.status === AutogradeStatus.COMPLETED) return
+  if (alreadyFullyIngested({ targetCount: targets.length, completedCount })) return
 
   let raw: string
   try {
@@ -70,7 +87,7 @@ export async function ingestAutogradeRun(job: IngestAutogradeRunJob): Promise<vo
       // repository's template has no autograding at all. Recorded as failed with
       // an explanation rather than retried forever.
       await recordFailure(
-        repo.id,
+        targets.map((t) => t.id),
         workflowRunId,
         'This run produced no autograding results. The workflow may have failed before the ' +
           'tests ran — check the run on GitHub.',
@@ -82,7 +99,7 @@ export async function ingestAutogradeRun(job: IngestAutogradeRunJob): Promise<vo
     if (error instanceof GitHubDomainError && error.retryable) throw error
 
     await recordFailure(
-      repo.id,
+      targets.map((t) => t.id),
       workflowRunId,
       error instanceof GitHubDomainError
         ? error.userMessage
@@ -96,7 +113,7 @@ export async function ingestAutogradeRun(job: IngestAutogradeRunJob): Promise<vo
     parsed = parseResults(raw)
   } catch (error) {
     await recordFailure(
-      repo.id,
+      targets.map((t) => t.id),
       workflowRunId,
       error instanceof ResultsParseError
         ? error.message
@@ -118,43 +135,47 @@ export async function ingestAutogradeRun(job: IngestAutogradeRunJob): Promise<vo
   const runMeta = await findRunMetadata(installationId, org, repoName, workflowRunId)
 
   await db.$transaction(async (tx) => {
-    // Replace rather than accumulate: re-ingesting the same run must not double
-    // its test rows.
-    const run = await tx.autogradeRun.upsert({
-      where: { workflowRunId },
-      create: {
-        assignmentRepoId: repo.id,
-        workflowRunId,
-        headSha: runMeta?.headSha ?? '',
-        status: AutogradeStatus.COMPLETED,
-        score: parsed.score,
-        maxScore: parsed.maxScore,
-        startedAt: runMeta?.createdAt ?? null,
-        completedAt: runMeta?.updatedAt ?? new Date(),
-        rawResults: buildRawRecord(parsed.warnings, discrepancies, raw),
-      },
-      update: {
-        status: AutogradeStatus.COMPLETED,
-        score: parsed.score,
-        maxScore: parsed.maxScore,
-        completedAt: runMeta?.updatedAt ?? new Date(),
-        rawResults: buildRawRecord(parsed.warnings, discrepancies, raw),
-      },
-      select: { id: true },
-    })
+    for (const target of targets) {
+      // Replace rather than accumulate: re-ingesting the same run must not double
+      // its test rows.
+      const run = await tx.autogradeRun.upsert({
+        where: {
+          assignmentRepoId_workflowRunId: { assignmentRepoId: target.id, workflowRunId },
+        },
+        create: {
+          assignmentRepoId: target.id,
+          workflowRunId,
+          headSha: runMeta?.headSha ?? '',
+          status: AutogradeStatus.COMPLETED,
+          score: parsed.score,
+          maxScore: parsed.maxScore,
+          startedAt: runMeta?.createdAt ?? null,
+          completedAt: runMeta?.updatedAt ?? new Date(),
+          rawResults: buildRawRecord(parsed.warnings, discrepancies, raw),
+        },
+        update: {
+          status: AutogradeStatus.COMPLETED,
+          score: parsed.score,
+          maxScore: parsed.maxScore,
+          completedAt: runMeta?.updatedAt ?? new Date(),
+          rawResults: buildRawRecord(parsed.warnings, discrepancies, raw),
+        },
+        select: { id: true },
+      })
 
-    await tx.autogradeTestResult.deleteMany({ where: { runId: run.id } })
-    await tx.autogradeTestResult.createMany({
-      data: parsed.tests.map((test) => ({
-        runId: run.id,
-        gradingTestId: testIdByName.get(test.name) ?? null,
-        name: test.name,
-        passed: test.passed,
-        points: test.points,
-        maxPoints: test.maxPoints,
-        output: test.outcome,
-      })),
-    })
+      await tx.autogradeTestResult.deleteMany({ where: { runId: run.id } })
+      await tx.autogradeTestResult.createMany({
+        data: parsed.tests.map((test) => ({
+          runId: run.id,
+          gradingTestId: testIdByName.get(test.name) ?? null,
+          name: test.name,
+          passed: test.passed,
+          points: test.points,
+          maxPoints: test.maxPoints,
+          output: test.outcome,
+        })),
+      })
+    }
   })
 
   if (discrepancies.length > 0) {
@@ -180,28 +201,31 @@ function buildRawRecord(
   }
 }
 
+/** Recorded against every row sharing the repository, for the same reason the results are. */
 async function recordFailure(
-  assignmentRepoId: string,
+  assignmentRepoIds: readonly string[],
   workflowRunId: bigint,
   message: string,
   raw?: string,
 ): Promise<void> {
-  await db.autogradeRun.upsert({
-    where: { workflowRunId },
-    create: {
-      assignmentRepoId,
-      workflowRunId,
-      headSha: '',
-      status: AutogradeStatus.FAILED,
-      completedAt: new Date(),
-      rawResults: { error: message, ...(raw ? { raw: raw.slice(0, 10_000) } : {}) },
-    },
-    update: {
-      status: AutogradeStatus.FAILED,
-      completedAt: new Date(),
-      rawResults: { error: message, ...(raw ? { raw: raw.slice(0, 10_000) } : {}) },
-    },
-  })
+  for (const assignmentRepoId of assignmentRepoIds) {
+    await db.autogradeRun.upsert({
+      where: { assignmentRepoId_workflowRunId: { assignmentRepoId, workflowRunId } },
+      create: {
+        assignmentRepoId,
+        workflowRunId,
+        headSha: '',
+        status: AutogradeStatus.FAILED,
+        completedAt: new Date(),
+        rawResults: { error: message, ...(raw ? { raw: raw.slice(0, 10_000) } : {}) },
+      },
+      update: {
+        status: AutogradeStatus.FAILED,
+        completedAt: new Date(),
+        rawResults: { error: message, ...(raw ? { raw: raw.slice(0, 10_000) } : {}) },
+      },
+    })
+  }
 }
 
 /** Head SHA and timings for a run, for display. Best effort. */
@@ -262,8 +286,12 @@ export async function resyncAutogradeRuns(assignmentRepoId: string): Promise<{
   const runs = await listWorkflowRuns(installationId, org, repoName, 50)
   const completed = runs.filter((run) => run.status === 'completed')
 
+  // Scoped to this row. A run ingested for a student who shares the repository says
+  // nothing about whether *this* student has it, and the composite key means the two
+  // are genuinely separate rows.
   const known = await db.autogradeRun.findMany({
     where: {
+      assignmentRepoId,
       workflowRunId: { in: completed.map((r) => r.id) },
       status: AutogradeStatus.COMPLETED,
     },

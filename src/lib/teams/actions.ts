@@ -3,9 +3,13 @@
 import { RepoStatus } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 
+import { parseRepoReference } from '@/lib/assignments/schemas'
 import { requireClassroomRole, requireInstructor, requireUser } from '@/lib/auth/dal'
 import { roleSatisfies } from '@/lib/auth/roles'
 import { db } from '@/lib/db'
+import { GitHubDomainError } from '@/lib/github/errors'
+import { getRepo } from '@/lib/github/operations/repos'
+import { canAdoptRepo } from '@/lib/repos/adopt'
 import { slugifyTeamName } from '@/lib/github/repoName'
 import { enqueue, QUEUES } from '@/jobs/queue'
 
@@ -33,9 +37,12 @@ type LoadedAssignment = {
   id: string
   classroomId: string
   classroomSlug: string
+  orgLogin: string
+  installationId: bigint
   archived: boolean
   published: boolean
   type: 'INDIVIDUAL' | 'GROUP'
+  repoSource: 'CREATE' | 'EXISTING'
   constraints: TeamConstraints
   studentPermission: 'PULL' | 'PUSH' | 'MAINTAIN' | 'ADMIN'
 }
@@ -53,8 +60,16 @@ async function loadGroupAssignment(
       maxTeams: true,
       maxTeamSize: true,
       teamNamingMode: true,
+      repoSource: true,
       studentPermission: true,
-      classroom: { select: { slug: true, archivedAt: true } },
+      classroom: {
+        select: {
+          slug: true,
+          archivedAt: true,
+          githubOrgLogin: true,
+          installationId: true,
+        },
+      },
     },
   })
   if (!row) return null
@@ -63,9 +78,12 @@ async function loadGroupAssignment(
     id: row.id,
     classroomId: row.classroomId,
     classroomSlug: row.classroom.slug,
+    orgLogin: row.classroom.githubOrgLogin,
+    installationId: row.classroom.installationId,
     archived: row.classroom.archivedAt !== null,
     published: row.publishedAt !== null,
     type: row.type,
+    repoSource: row.repoSource,
     studentPermission: row.studentPermission,
     constraints: {
       maxTeams: row.maxTeams,
@@ -101,11 +119,27 @@ async function snapshotTeams(assignmentId: string): Promise<TeamSnapshot[]> {
  * to the existing GitHub team rather than getting a second repository. The
  * singleton key collapses repeated enqueues.
  */
-async function ensureTeamProvisioning(teamId: string, assignmentId: string): Promise<void> {
+async function ensureTeamProvisioning(
+  teamId: string,
+  assignmentId: string,
+  repoSource: 'CREATE' | 'EXISTING',
+): Promise<void> {
   const existing = await db.assignmentRepo.findUnique({
     where: { teamId },
     select: { id: true, status: true },
   })
+
+  /*
+   * Under EXISTING there is nothing to provision until an instructor links a
+   * repository, and running the job anyway would mark every freshly formed team
+   * FAILED — then do it again on each join and each move. So team formation stays
+   * quiet and `linkTeamRepo` is what starts the work.
+   *
+   * Once the row exists this is the ordinary path again, which is what keeps the
+   * late-joiner case working: a student who joins a linked team re-runs the job
+   * and is added to the GitHub team like anyone else.
+   */
+  if (!existing && repoSource === 'EXISTING') return
 
   const row =
     existing ??
@@ -210,7 +244,7 @@ export async function createStudentTeam(
   })
 
   if (actor === 'STUDENT') {
-    await ensureTeamProvisioning(team.id, assignmentId)
+    await ensureTeamProvisioning(team.id, assignmentId, assignment.repoSource)
   }
 
   revalidatePath(`/classrooms/${assignment.classroomSlug}/assignments/${assignmentId}`)
@@ -291,7 +325,7 @@ export async function joinTeam(formData: FormData): Promise<TeamActionResult> {
   })
 
   // Re-provision so a late joiner is added to the existing GitHub team.
-  await ensureTeamProvisioning(teamId, assignmentId)
+  await ensureTeamProvisioning(teamId, assignmentId, assignment.repoSource)
 
   revalidatePath(`/classrooms/${assignment.classroomSlug}/assignments/${assignmentId}`)
   return { ok: true, data: undefined }
@@ -354,7 +388,14 @@ export async function provisionTeamNow(formData: FormData): Promise<TeamActionRe
       id: true,
       name: true,
       assignmentId: true,
-      assignment: { select: { classroomId: true, classroom: { select: { slug: true } } } },
+      assignment: {
+        select: {
+          classroomId: true,
+          repoSource: true,
+          classroom: { select: { slug: true } },
+        },
+      },
+      repo: { select: { fullName: true } },
       _count: { select: { members: true } },
     },
   })
@@ -366,7 +407,17 @@ export async function provisionTeamNow(formData: FormData): Promise<TeamActionRe
     return { ok: false, error: `${team.name} has no members yet.` }
   }
 
-  await ensureTeamProvisioning(team.id, team.assignmentId)
+  // `ensureTeamProvisioning` would return silently here, which from a button press
+  // looks like nothing happened. Say what is missing instead.
+  if (team.assignment.repoSource === 'EXISTING' && !team.repo?.fullName) {
+    return {
+      ok: false,
+      error: `Link ${team.name}\u2019s repository first — this assignment uses repositories ` +
+        'that already exist, so there is nothing to create.',
+    }
+  }
+
+  await ensureTeamProvisioning(team.id, team.assignmentId, team.assignment.repoSource)
 
   await db.auditLog.create({
     data: {
@@ -455,7 +506,136 @@ export async function moveStudentToTeam(
   // membership is left alone deliberately: revoking it would cut the student off
   // from commits they already made, which is a decision for the instructor to
   // make explicitly rather than a side effect of a move.
-  await ensureTeamProvisioning(target.id, assignmentId)
+  await ensureTeamProvisioning(target.id, assignmentId, assignment.repoSource)
+
+  revalidatePath(`/classrooms/${assignment.classroomSlug}/assignments/${assignmentId}`)
+  return { ok: true, data: undefined }
+}
+
+/**
+ * Instructor: point a team at a repository that already exists.
+ *
+ * The counterpart to `provisionTeamNow` for an assignment whose `repoSource` is
+ * EXISTING. It records the link and starts the same provisioning job, which then
+ * adopts the repository instead of creating one.
+ *
+ * The repository is verified here rather than only in the job, for the reason the
+ * template check gives: a typo should be one form error in front of the person who
+ * made it, not a failed job discovered later. It matters more in this direction —
+ * an unverified name that happens to be free would, under CREATE, quietly become a
+ * brand new empty repository.
+ */
+export async function linkTeamRepo(formData: FormData): Promise<TeamActionResult> {
+  const assignmentId = String(formData.get('assignmentId') ?? '')
+  const teamId = String(formData.get('teamId') ?? '')
+  const raw = String(formData.get('repo') ?? '').trim()
+
+  const assignment = await loadGroupAssignment(assignmentId)
+  if (!assignment) return { ok: false, error: 'That assignment no longer exists.' }
+
+  const { user } = await requireInstructor(assignment.classroomId)
+
+  if (assignment.archived) {
+    return { ok: false, error: 'This classroom is archived. Restore it to change assignments.' }
+  }
+  if (assignment.type !== 'GROUP') {
+    return { ok: false, error: 'Only group assignments have teams.' }
+  }
+
+  const team = await db.team.findFirst({
+    where: { id: teamId, assignmentId },
+    select: { id: true, name: true, repo: { select: { id: true, fullName: true } } },
+  })
+  if (!team) return { ok: false, error: 'That team no longer exists.' }
+
+  if (!raw) return { ok: false, error: 'Enter a repository as owner/name, or paste its URL.' }
+
+  const ref = parseRepoReference(raw, assignment.orgLogin)
+
+  /*
+   * The clash lookup runs before the rule check so `canAdoptRepo` stays pure, and
+   * is skipped when the reference did not parse — there is nothing to look up, and
+   * the rule refuses that case anyway.
+   */
+  const clash = ref
+    ? await db.assignmentRepo.findFirst({
+        where: {
+          assignmentId,
+          fullName: { equals: `${ref.owner}/${ref.repo}`, mode: 'insensitive' },
+          NOT: { teamId },
+        },
+        select: { team: { select: { name: true } } },
+      })
+    : null
+
+  const rule = canAdoptRepo({
+    repoSource: assignment.repoSource,
+    orgLogin: assignment.orgLogin,
+    ref,
+    conflictsWith: clash ? (clash.team?.name ?? 'another team') : null,
+  })
+  if (!rule.allowed) return { ok: false, error: rule.reason }
+  // Narrowing only: the rule already refused a null reference.
+  if (!ref) return { ok: false, error: 'Could not read that as a repository.' }
+
+  let found
+  try {
+    found = await getRepo(assignment.installationId, ref.owner, ref.repo)
+  } catch (error) {
+    const message =
+      error instanceof GitHubDomainError ? error.userMessage : 'Could not reach GitHub.'
+    return { ok: false, error: message }
+  }
+
+  if (!found) {
+    return {
+      ok: false,
+      error:
+        `There is no repository called ${ref.owner}/${ref.repo}, or this app cannot see it. ` +
+        'Check the name, and that the GitHub App has access to it.',
+    }
+  }
+
+  const previous = team.repo?.fullName ?? null
+
+  /*
+   * Re-linking is allowed, and leaves the old repository alone — the GitHub team
+   * keeps whatever access it was granted there. Same reasoning as moving a student
+   * between teams: cutting people off from work they have already committed is a
+   * decision for the instructor to make deliberately, not a side effect of fixing
+   * a typo.
+   */
+  await db.assignmentRepo.upsert({
+    where: { teamId },
+    create: {
+      assignmentId,
+      teamId,
+      status: RepoStatus.QUEUED,
+      githubRepoId: found.id,
+      fullName: found.fullName,
+      htmlUrl: found.htmlUrl,
+    },
+    update: {
+      status: RepoStatus.QUEUED,
+      failureReason: null,
+      githubRepoId: found.id,
+      fullName: found.fullName,
+      htmlUrl: found.htmlUrl,
+    },
+  })
+
+  await db.auditLog.create({
+    data: {
+      classroomId: assignment.classroomId,
+      actorUserId: user.id,
+      action: 'team.link_repo',
+      targetType: 'team',
+      targetId: team.id,
+      detail: { teamName: team.name, repo: found.fullName, previous },
+    },
+  })
+
+  await ensureTeamProvisioning(team.id, assignmentId, assignment.repoSource)
 
   revalidatePath(`/classrooms/${assignment.classroomSlug}/assignments/${assignmentId}`)
   return { ok: true, data: undefined }
