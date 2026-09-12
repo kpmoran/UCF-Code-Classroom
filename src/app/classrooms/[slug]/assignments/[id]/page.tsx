@@ -8,6 +8,7 @@ import { DeadlinePanel } from '@/components/deadline-panel'
 import { FeedbackPrPanel } from '@/components/feedback-pr-panel'
 import { ProjectBoardPanel } from '@/components/project-board-panel'
 import { AssignStudentReposPanel } from '@/components/assign-student-repos-panel'
+import { getOrgRepoSuggestions } from '@/lib/assignments/actions'
 import { InstructorTeamPanel } from '@/components/instructor-team-panel'
 import { TeamFormationPanel } from '@/components/team-formation-panel'
 import { SiteHeader } from '@/components/site-header'
@@ -955,6 +956,10 @@ async function StaffAssignRepoSection({
     <AssignStudentReposPanel
       assignmentId={assignmentId}
       orgLogin={orgLogin}
+      // Bound here, invoked from the client the first time a field is focused —
+      // never during this render, which is what keeps a paged GitHub listing off
+      // the path that paints the page.
+      loadRepos={getOrgRepoSuggestions.bind(null, classroomId)}
       students={claimedEntries.map((entry) => {
         const repo = repoByUser.get(entry.claimedByUserId!)
         return {

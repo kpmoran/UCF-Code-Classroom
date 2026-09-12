@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { Badge } from '@/components/ui/badge'
@@ -8,7 +8,9 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/table'
+import { RepoCombobox } from '@/components/repo-combobox'
 import { assignStudentRepo } from '@/lib/assignments/actions'
+import type { TemplateOption } from '@/lib/github/templateMatch'
 
 export type AssignableStudent = {
   userId: string
@@ -37,17 +39,46 @@ export function AssignStudentReposPanel({
   assignmentId,
   orgLogin,
   students,
+  loadRepos,
 }: {
   assignmentId: string
   orgLogin: string
   students: AssignableStudent[]
+  /**
+   * Fetches the organization's repositories for the type-ahead.
+   *
+   * Called at most once per visit, the first time any field is focused — not on
+   * mount, and emphatically not per row. A classroom organization gains a
+   * repository per student per assignment, so this is a paged listing whose cost
+   * grows all term; making it the price of opening the page, or paying it forty
+   * times over for forty students, would be the wrong direction for that cost to
+   * move in.
+   */
+  loadRepos: () => Promise<TemplateOption[]>
 }) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [inputs, setInputs] = useState<Record<string, string>>({})
+  const [repoOptions, setRepoOptions] = useState<TemplateOption[]>([])
+  const [loadState, setLoadState] = useState<'idle' | 'loading' | 'loaded' | 'failed'>('idle')
+  // A ref rather than the state above, because several fields can be focused in the
+  // same tick and state would not have settled between them.
+  const requested = useRef(false)
   const [query, setQuery] = useState('')
   const [pending, startTransition] = useTransition()
+
+  const ensureRepos = useCallback(() => {
+    if (requested.current) return
+    requested.current = true
+    setLoadState('loading')
+    loadRepos()
+      .then((found) => {
+        setRepoOptions(found)
+        setLoadState('loaded')
+      })
+      .catch(() => setLoadState('failed'))
+  }, [loadRepos])
 
   const inFlight = students.some(
     (s) => s.repo?.status === 'QUEUED' || s.repo?.status === 'PROVISIONING',
@@ -185,14 +216,17 @@ export function AssignStudentReposPanel({
                   ) : null}
 
                   <div className="flex gap-2">
-                    <Input
-                      aria-label={`Repository for ${s.name}`}
-                      placeholder={s.repo?.fullName ?? `${orgLogin}/repo-name`}
+                    <RepoCombobox
+                      ariaLabel={`Repository for ${s.name}`}
+                      orgLogin={orgLogin}
                       value={inputs[s.userId] ?? ''}
-                      onChange={(e) =>
-                        setInputs((prev) => ({ ...prev, [s.userId]: e.target.value }))
+                      onChange={(next) =>
+                        setInputs((prev) => ({ ...prev, [s.userId]: next }))
                       }
-                      className="h-8 text-xs font-mono"
+                      onFirstFocus={ensureRepos}
+                      options={repoOptions}
+                      loadState={loadState}
+                      disabled={pending}
                     />
                     <Button
                       variant="outline"
