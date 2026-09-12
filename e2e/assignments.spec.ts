@@ -1,4 +1,13 @@
-import { appAlert, applySession, db, expect, openSettingsTab, seedSession, test } from './fixtures'
+import {
+  appAlert,
+  applySession,
+  db,
+  expect,
+  openSettingsTab,
+  seedSession,
+  templateField,
+  test,
+} from './fixtures'
 import { deleteRepoIfExists, getRepoInfo, isRepoCollaborator, VERIFY_USER } from './github'
 
 /**
@@ -73,17 +82,17 @@ test('instructor creates an assignment, validating the template against GitHub',
   await page.getByLabel('Repository name prefix').fill(PREFIX)
 
   // A template that is not a template is rejected, with the reason.
-  await page.getByLabel('Template').fill(`${ORG}/verify-not-a-template`)
+  await templateField(page).fill(`${ORG}/verify-not-a-template`)
   await page.getByRole('button', { name: /Create and publish/ }).click()
   await expect(appAlert(page)).toContainText('not marked as a template')
 
   // A template that does not exist is rejected too.
-  await page.getByLabel('Template').fill(`${ORG}/no-such-template-9z8y7x`)
+  await templateField(page).fill(`${ORG}/no-such-template-9z8y7x`)
   await page.getByRole('button', { name: /Create and publish/ }).click()
   await expect(appAlert(page)).toContainText('Could not find')
 
   // The real template is accepted.
-  await page.getByLabel('Template').fill(`${ORG}/${TEMPLATE}`)
+  await templateField(page).fill(`${ORG}/${TEMPLATE}`)
   await page.getByRole('button', { name: /Create and publish/ }).click()
 
   await page.waitForURL(/\/assignments\/[a-z0-9]+$/)
@@ -494,7 +503,7 @@ test('the template field suggests the organization\u2019s templates as you type'
   await applySession(context, instructor)
   await page.goto(`/classrooms/${SLUG}/assignments/new`)
 
-  const field = page.getByLabel('Template')
+  const field = templateField(page)
   const list = page.getByRole('listbox', { name: 'Suggested repositories' })
 
   await field.click()
@@ -700,7 +709,7 @@ test('typing survives the suggestions arriving', async ({ page, context }) => {
   await applySession(context, instructor)
   await page.goto(`/classrooms/${SLUG}/assignments/new`)
 
-  const field = page.getByLabel('Template')
+  const field = templateField(page)
   // Type immediately, before the suggestion round trip can finish.
   await field.fill('some-other-org/borrowed')
 
@@ -726,14 +735,14 @@ test('a suggested template can be picked with the mouse and survives submission'
   await page.goto(`/classrooms/${SLUG}/assignments/new`)
 
   await page.getByLabel('Title').fill('Picked From The Menu')
-  await page.getByLabel('Template').click()
+  await templateField(page).click()
   await page
     .getByRole('listbox', { name: 'Suggested repositories' })
     .getByRole('option', { name: TEMPLATE })
     .click()
   // Assert the pick landed in the field before submitting, so a failure below
   // distinguishes "the menu did not set the value" from "the form did not post it".
-  await expect(page.getByLabel('Template')).toHaveValue(`${ORG}/${TEMPLATE}`)
+  await expect(templateField(page)).toHaveValue(`${ORG}/${TEMPLATE}`)
 
   await page.getByLabel('Repository name prefix').fill('picked')
   await page.getByRole('button', { name: /Create and publish/ }).click()

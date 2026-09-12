@@ -86,6 +86,23 @@ export function appAlert(page: Page) {
 }
 
 /**
+ * The new-assignment form's template field.
+ *
+ * Matched by role and full accessible name rather than `getByLabel('Template')`,
+ * which is a *case-insensitive substring* match and so quietly widens as the form
+ * gains copy. It did: the repository-source radios describe the CREATE option as
+ * "A new repository for each student, from the template or empty", which put a
+ * second element under that locator and failed four tests with a strict-mode
+ * violation — nothing to do with the template field, which was fine.
+ *
+ * Use this rather than reaching for the label directly, so the next piece of copy
+ * that mentions a template does not break the suite again.
+ */
+export function templateField(page: Page) {
+  return page.getByRole('combobox', { name: 'Template (optional)' })
+}
+
+/**
  * Reveal the staff assignment page's Settings tab.
  *
  * The deadline, autograding, feedback and project-board panels moved behind a tab,
