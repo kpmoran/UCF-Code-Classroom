@@ -259,21 +259,26 @@ describe('feedback pull request', () => {
       expect(result.number).toBeGreaterThan(0)
     }
 
-    // Either way the pinned branch must exist for the PR to be openable later.
-    const octokit = getInstallationOctokit(installationId)
-    const { data: ref } = await octokit.rest.git.getRef({
-      owner: ORG,
-      repo: GENERATED_REPO,
-      ref: 'heads/feedback',
-    })
+    /*
+     * Either way the pinned branch must exist for the PR to be openable later.
+     *
+     * Polled rather than read once: git refs are eventually consistent, and this runs
+     * moments after the branch was created on a repository that was itself generated
+     * seconds earlier. A single read can answer 404 for a ref that exists, which fails
+     * this assertion for a reason that has nothing to do with the behaviour under
+     * test — and did, intermittently, but only under full-suite load. The assertion
+     * itself is unchanged: the branch must appear, and at the initial commit.
+     */
+    const ref = await waitForRef(GENERATED_REPO, 'heads/feedback')
+    expect(ref, 'the feedback branch never became visible').not.toBeNull()
     const initial = await getInitialCommitSha(
       installationId,
       ORG,
       GENERATED_REPO,
       repo!.defaultBranch,
     )
-    expect(ref.object.sha).toBe(initial)
-    console.log(`  feedback branch pinned at ${ref.object.sha.slice(0, 8)} (initial commit)`)
+    expect(ref!.sha).toBe(initial)
+    console.log(`  feedback branch pinned at ${ref!.sha.slice(0, 8)} (initial commit)`)
   })
 
   it('opens the PR once the student pushes a commit', async () => {
@@ -315,4 +320,30 @@ async function currentFileSha(repo: string, path: string): Promise<string | unde
   const octokit = getInstallationOctokit(installationId)
   const { data } = await octokit.rest.repos.getContent({ owner: ORG, repo, path })
   return Array.isArray(data) ? undefined : (data as { sha: string }).sha
+}
+
+/**
+ * Poll until a ref becomes visible, or give up.
+ *
+ * GitHub's refs are eventually consistent; a read taken immediately after the write
+ * that created one can still answer 404. Returns null on timeout so the caller
+ * asserts on the absence rather than dying in the helper.
+ */
+async function waitForRef(
+  repo: string,
+  ref: string,
+  timeoutMs = 15_000,
+): Promise<{ sha: string } | null> {
+  const octokit = getInstallationOctokit(installationId)
+  const started = Date.now()
+
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const { data } = await octokit.rest.git.getRef({ owner: ORG, repo, ref })
+      return { sha: data.object.sha }
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+  }
+  return null
 }

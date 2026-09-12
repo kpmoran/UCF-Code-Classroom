@@ -20,13 +20,21 @@ import {
  * Returns what changed so the caller can log it, and never throws for a missing
  * repository: a student's repository may be deleted between the sweep and the
  * write.
+ *
+ * Also returns `commitSha` — the commit these writes produced, or null when both
+ * files already matched and nothing was written. Provisioning pins the feedback
+ * baseline at exactly that commit rather than re-reading the branch head: GitHub's
+ * refs are eventually consistent, so a read taken immediately after these writes can
+ * still answer with the commit *before* them, which pins the baseline early and
+ * leaves this workflow and manifest showing as student changes in every feedback
+ * diff for the life of the assignment.
  */
 export async function injectAutogradingWorkflow(opts: {
   installationId: bigint
   owner: string
   repo: string
   tests: readonly GradingTestSpec[]
-}): Promise<{ workflowChanged: boolean; manifestChanged: boolean }> {
+}): Promise<{ workflowChanged: boolean; manifestChanged: boolean; commitSha: string | null }> {
   const { workflowYaml, manifestJson } = renderWorkflow(opts.tests)
 
   // The manifest is written first. If only one of the two writes lands, a stale
@@ -53,5 +61,12 @@ export async function injectAutogradingWorkflow(opts: {
   return {
     workflowChanged: workflow.changed,
     manifestChanged: manifest.changed,
+    /*
+     * The later of the two writes, since the workflow is written second. Falls back
+     * to the manifest's commit for the case where only the manifest changed, and to
+     * null when neither did — and null is the right answer there, because nothing was
+     * committed and the branch head already includes both files.
+     */
+    commitSha: workflow.commitSha ?? manifest.commitSha ?? null,
   }
 }

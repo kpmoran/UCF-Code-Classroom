@@ -45,9 +45,48 @@ export async function ensureFeedbackBranch(
   installationId: bigint,
   owner: string,
   repo: string,
+  /*
+   * The commit to pin the baseline at, when the caller knows it.
+   *
+   * Provisioning does: it has just written the autograding workflow and holds the sha
+   * of that commit. Passing it avoids a read that GitHub can answer with a stale ref
+   * — refs are eventually consistent, and a stale answer here pins the baseline
+   * *before* the injected files, which then appear as student changes in every
+   * feedback diff for the life of the assignment. Rare, load-dependent, and permanent
+   * once it happens, because the branch is only ever created once.
+   *
+   * Omitted by the sweep and the webhook path, which run long after the writes have
+   * settled and have no particular commit in mind.
+   */
+  baseSha?: string | null,
 ): Promise<{ state: 'created' | 'existing' | 'skipped'; sha: string | null; reason?: string }> {
   const existing = await getRef(installationId, owner, repo, `heads/${FEEDBACK_BRANCH}`)
   if (existing) return { state: 'existing', sha: existing.sha }
+
+  if (baseSha) {
+    try {
+      await createBranch(installationId, owner, repo, FEEDBACK_BRANCH, baseSha)
+      return { state: 'created', sha: baseSha }
+    } catch (error) {
+      /*
+       * Falling back rather than failing, because the two outcomes are not
+       * comparable. Pinning at a slightly stale head produces a feedback diff with
+       * two of our files in it — untidy, and what this whole path exists to avoid.
+       * Creating no branch at all means the student never gets a feedback pull
+       * request, which is the feature not working.
+       *
+       * So a refusal here (GitHub can reject a ref pointing at a commit it has not
+       * finished making visible) drops through to the head read below, which is what
+       * this did before the sha was threaded through at all.
+       */
+      console.warn(
+        `[github] could not pin the feedback baseline of ${owner}/${repo} at ${baseSha}; ` +
+          `falling back to the branch head: ${
+            error instanceof GitHubDomainError ? error.userMessage : String(error)
+          }`,
+      )
+    }
+  }
 
   const head = await getRepoHead(installationId, owner, repo)
   if (!head) {

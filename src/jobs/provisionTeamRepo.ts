@@ -138,6 +138,13 @@ export async function provisionTeamRepo(job: ProvisionTeamRepoJob): Promise<void
   })
 
   let autogradeWarning: string | null = null
+  /*
+   * The commit the autograding injection produced, carried to the feedback baseline
+   * below so it is pinned at exactly that commit rather than at whatever a fresh read
+   * of the branch head happens to return. See ensureFeedbackBranch for why that read
+   * cannot be trusted immediately after a write.
+   */
+  let injectedSha: string | null = null
 
   try {
     // 1. The GitHub team. Named for the assignment so several assignments in one
@@ -334,6 +341,7 @@ export async function provisionTeamRepo(job: ProvisionTeamRepoJob): Promise<void
           repo: repoName,
           tests: assignment.gradingTests,
         })
+        injectedSha = injected.commitSha
         if (injected.workflowChanged || injected.manifestChanged) {
           console.log(`[jobs] autograding workflow written to ${created.fullName}`)
         }
@@ -369,7 +377,12 @@ export async function provisionTeamRepo(job: ProvisionTeamRepoJob): Promise<void
      */
     if (assignment.feedbackPrEnabled && repo.feedbackPrNumber === null) {
       try {
-        const baseline = await ensureFeedbackBranch(installationId, org, repoName)
+        const baseline = await ensureFeedbackBranch(
+          installationId,
+          org,
+          repoName,
+          injectedSha,
+        )
         if (baseline.state === 'skipped') {
           console.warn(`[jobs] no feedback baseline for ${created.fullName}: ${baseline.reason}`)
         }
