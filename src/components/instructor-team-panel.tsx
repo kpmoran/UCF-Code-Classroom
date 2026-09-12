@@ -8,7 +8,12 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input, Select } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/table'
-import { createStudentTeam, moveStudentToTeam, provisionTeamNow } from '@/lib/teams/actions'
+import {
+  createStudentTeam,
+  linkTeamRepo,
+  moveStudentToTeam,
+  provisionTeamNow,
+} from '@/lib/teams/actions'
 
 export type InstructorTeamView = {
   id: string
@@ -43,17 +48,23 @@ export type UnassignedStudent = {
  */
 export function InstructorTeamPanel({
   assignmentId,
+  orgLogin,
+  repoSource,
   teams,
   unassigned,
 }: {
   assignmentId: string
+  orgLogin: string
+  repoSource: 'CREATE' | 'EXISTING'
   teams: InstructorTeamView[]
   unassigned: UnassignedStudent[]
 }) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [newTeamName, setNewTeamName] = useState('')
+  const [repoInputs, setRepoInputs] = useState<Record<string, string>>({})
   const [pending, startTransition] = useTransition()
+  const adoptsExisting = repoSource === 'EXISTING'
 
   const inFlight = teams.some(
     (t) => t.repo?.status === 'QUEUED' || t.repo?.status === 'PROVISIONING',
@@ -78,6 +89,7 @@ export function InstructorTeamPanel({
       if (!result.ok) setError(result.error ?? 'That did not work.')
       else {
         setNewTeamName('')
+        setRepoInputs({})
         router.refresh()
       }
     })
@@ -97,6 +109,9 @@ export function InstructorTeamPanel({
           <CardDescription>
             {teams.length} team{teams.length === 1 ? '' : 's'} ·{' '}
             {unassigned.length} student{unassigned.length === 1 ? '' : 's'} not on a team
+            {adoptsExisting
+              ? ' · each team works in a repository that already exists'
+              : null}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -120,7 +135,11 @@ export function InstructorTeamPanel({
           {teams.length === 0 ? (
             <EmptyState
               title="No teams yet"
-              description="Students can form their own, or create teams here and assign members."
+              description={
+                adoptsExisting
+                  ? 'Create a team here, add its members, then link the repository they work in.'
+                  : 'Students can form their own, or create teams here and assign members.'
+              }
             />
           ) : (
             <ul className="space-y-3">
@@ -139,12 +158,20 @@ export function InstructorTeamPanel({
                           {t.repo.fullName}
                         </a>
                       ) : (
-                        <p className="text-xs text-muted">no repository yet</p>
+                        <p className="text-xs text-muted">
+                          {adoptsExisting ? 'no repository linked yet' : 'no repository yet'}
+                        </p>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      {t.repo ? <StatusBadge status={t.repo.status} /> : null}
-                      {!t.repo || t.repo.status === 'FAILED' ? (
+                      {t.repo ? <StatusBadge status={t.repo.status} adopted={adoptsExisting} /> : null}
+                      {/*
+                        Under EXISTING there is nothing to create, and the repository
+                        input below is the retry: linking the same name again re-queues
+                        the job. A "Retry" button next to it would be a second control
+                        for the same thing.
+                      */}
+                      {!adoptsExisting && (!t.repo || t.repo.status === 'FAILED') ? (
                         <Button
                           variant="outline"
                           size="sm"
@@ -156,6 +183,30 @@ export function InstructorTeamPanel({
                       ) : null}
                     </div>
                   </div>
+
+                  {adoptsExisting ? (
+                    <div className="flex gap-2">
+                      <Input
+                        aria-label={`Repository for ${t.name}`}
+                        placeholder={t.repo?.fullName ?? `${orgLogin}/repo-name`}
+                        value={repoInputs[t.id] ?? ''}
+                        onChange={(e) =>
+                          setRepoInputs((prev) => ({ ...prev, [t.id]: e.target.value }))
+                        }
+                        className="h-8 text-xs font-mono"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={pending || (repoInputs[t.id] ?? '').trim().length < 2}
+                        onClick={() =>
+                          run(linkTeamRepo, { teamId: t.id, repo: repoInputs[t.id] ?? '' })
+                        }
+                      >
+                        {t.repo?.fullName ? 'Relink' : 'Link'}
+                      </Button>
+                    </div>
+                  ) : null}
 
                   {t.repo?.failureReason ? (
                     <p className="text-xs text-danger">{t.repo.failureReason}</p>
@@ -267,14 +318,22 @@ export function InstructorTeamPanel({
   )
 }
 
-function StatusBadge({ status }: { status: 'QUEUED' | 'PROVISIONING' | 'READY' | 'FAILED' }) {
+function StatusBadge({
+  status,
+  adopted,
+}: {
+  status: 'QUEUED' | 'PROVISIONING' | 'READY' | 'FAILED'
+  adopted: boolean
+}) {
   switch (status) {
     case 'READY':
       return <Badge tone="success">Ready</Badge>
     case 'FAILED':
       return <Badge tone="danger">Failed</Badge>
     case 'PROVISIONING':
-      return <Badge tone="info">Creating…</Badge>
+      // Nothing is being created when the repository already exists; what is in
+      // flight is the team, its members and their access.
+      return <Badge tone="info">{adopted ? 'Linking…' : 'Creating…'}</Badge>
     default:
       return <Badge tone="neutral">Queued</Badge>
   }

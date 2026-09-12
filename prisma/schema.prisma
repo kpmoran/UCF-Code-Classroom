@@ -311,6 +311,19 @@ enum TeamNamingMode {
   INSTRUCTOR_ASSIGNED
 }
 
+// Where a group assignment's repositories come from.
+//
+// CREATE is the original behaviour: provisioning makes one repository per team,
+// from the template or empty. EXISTING is for a course whose project repositories
+// already exist in the organization — a semester-long team project that predates
+// the assignment, or repositories seeded by hand. Provisioning then adopts the
+// repository an instructor linked instead of creating one, and everything else
+// (the GitHub team, membership, access, autograding, deadlines) is unchanged.
+enum RepoSource {
+  CREATE
+  EXISTING
+}
+
 model Assignment {
   id          String         @id @default(cuid())
   classroomId String
@@ -341,10 +354,13 @@ model Assignment {
   // student's personal board can never attach to one of these.
   projectBoardEnabled Boolean @default(false)
 
-  // Group-assignment settings; null for INDIVIDUAL.
+  // Group-only settings; null for INDIVIDUAL.
   maxTeams       Int?
   maxTeamSize    Int?
   teamNamingMode TeamNamingMode @default(STUDENT_CHOSEN)
+  // Applies to both assignment types. Under EXISTING nothing is created: staff link
+  // each team — or each student — to a repository that already exists in the org.
+  repoSource     RepoSource     @default(CREATE)
 
   totalPoints Int       @default(0)
   publishedAt DateTime?
@@ -537,7 +553,11 @@ model AutogradeRun {
   id               String @id @default(cuid())
   assignmentRepoId String
 
-  workflowRunId BigInt @unique
+  // Not globally unique: when several students are assigned the same repository,
+  // one workflow run is ingested once per student, so each of them has a run — and
+  // therefore a score — of their own. Unique per repository row instead, which is
+  // still what makes re-ingesting a delivery idempotent.
+  workflowRunId BigInt
   headSha       String
 
   status   AutogradeStatus @default(PENDING)
@@ -554,7 +574,9 @@ model AutogradeRun {
   assignmentRepo AssignmentRepo        @relation(fields: [assignmentRepoId], references: [id], onDelete: Cascade)
   testResults    AutogradeTestResult[]
 
+  @@unique([assignmentRepoId, workflowRunId])
   @@index([assignmentRepoId])
+  @@index([workflowRunId])
   @@map("autograde_runs")
 }
 

@@ -10,6 +10,7 @@ import { ensureFeedbackBranch } from '@/lib/github/operations/pulls'
 import {
   createEmptyRepo,
   generateRepoFromTemplate,
+  getRepo,
   listOrgRepoNames,
 } from '@/lib/github/operations/repos'
 import { buildRepoName, dedupeRepoName } from '@/lib/github/repoName'
@@ -44,6 +45,7 @@ export async function provisionIndividualRepo(
         select: {
           id: true,
           repoPrefix: true,
+          repoSource: true,
           title: true,
           templateOwner: true,
           templateRepo: true,
@@ -107,54 +109,115 @@ export async function provisionIndividualRepo(
   let autogradeWarning: string | null = null
 
   try {
-    // 1. Decide the repository name, once, and remember it.
-    const repoName = repo.fullName
-      ? repo.fullName.split('/')[1]
-      : await chooseRepoName(installationId, org, assignment.repoPrefix, repo.id, user.githubLogin)
+    // 1 and 2. The repository — created, or adopted.
+    let repoName: string
+    let created: { id: bigint; fullName: string; htmlUrl: string }
 
-    if (!repo.fullName) {
+    if (assignment.repoSource === 'EXISTING') {
+      /*
+       * Adopting a repository that already exists.
+       *
+       * `fullName` here is the instructor's input rather than a resume marker: the
+       * assign action wrote it and verified it then. Re-verified anyway, because the
+       * repository can be renamed, deleted or transferred in between, and every step
+       * below would otherwise fail one at a time with a 404 that explains nothing.
+       *
+       * Never falls back to creating one — see the note in provisionTeamRepo. It
+       * matters slightly more here, because a repository may be deliberately shared
+       * by several students and a silent creation would quietly un-share it for one
+       * of them.
+       */
+      if (!repo.fullName) {
+        await markFailed(
+          repo.id,
+          'No repository has been assigned to this student yet. Assign one from the ' +
+            'assignment\u2019s Repositories tab.',
+        )
+        return
+      }
+
+      const [linkedOwner, linkedName] = repo.fullName.split('/')
+      const found = await getRepo(installationId, linkedOwner, linkedName)
+      if (!found) {
+        await markFailed(
+          repo.id,
+          `${repo.fullName} no longer exists, or this app can no longer see it. Check the ` +
+            'repository on GitHub and assign it again.',
+        )
+        return
+      }
+
+      repoName = linkedName
+      created = { id: found.id, fullName: found.fullName, htmlUrl: found.htmlUrl }
+
+      // Visibility is deliberately left alone; the repository already has a history
+      // and an audience. Same reasoning as the team path.
       await db.assignmentRepo.update({
         where: { id: repo.id },
-        data: { fullName: `${org}/${repoName}` },
+        data: { githubRepoId: found.id, fullName: found.fullName, htmlUrl: found.htmlUrl },
+      })
+    } else {
+      // 1. Decide the repository name, once, and remember it.
+      repoName = repo.fullName
+        ? repo.fullName.split('/')[1]
+        : await chooseRepoName(
+            installationId,
+            org,
+            assignment.repoPrefix,
+            repo.id,
+            user.githubLogin,
+          )
+
+      if (!repo.fullName) {
+        await db.assignmentRepo.update({
+          where: { id: repo.id },
+          data: { fullName: `${org}/${repoName}` },
+        })
+      }
+
+      /*
+       * 2. Create the repository. From a template when the assignment has one —
+       *    which waits for GitHub's asynchronous copy so later steps can rely on
+       *    the contents existing — or empty when it does not.
+       *
+       *    An assignment without a template is not a degraded case: "build this from
+       *    scratch" is a normal thing to set, and the empty repository is the
+       *    starting state. Everything downstream already copes; see createEmptyRepo.
+       */
+      const generated =
+        assignment.templateOwner && assignment.templateRepo
+          ? await generateRepoFromTemplate({
+              installationId,
+              templateOwner: assignment.templateOwner,
+              templateRepo: assignment.templateRepo,
+              owner: org,
+              name: repoName,
+              private: assignment.visibility === 'PRIVATE',
+              description: `Assignment repository for ${user.githubLogin}`,
+            })
+          : await createEmptyRepo({
+              installationId,
+              owner: org,
+              name: repoName,
+              private: assignment.visibility === 'PRIVATE',
+              description: `Assignment repository for ${user.githubLogin}`,
+            })
+
+      created = {
+        id: generated.repo.id,
+        fullName: generated.repo.fullName,
+        htmlUrl: generated.repo.htmlUrl,
+      }
+
+      await db.assignmentRepo.update({
+        where: { id: repo.id },
+        data: {
+          githubRepoId: created.id,
+          fullName: created.fullName,
+          htmlUrl: created.htmlUrl,
+        },
       })
     }
-
-    /*
-     * 2. Create the repository. From a template when the assignment has one —
-     *    which waits for GitHub's asynchronous copy so later steps can rely on
-     *    the contents existing — or empty when it does not.
-     *
-     *    An assignment without a template is not a degraded case: "build this from
-     *    scratch" is a normal thing to set, and the empty repository is the
-     *    starting state. Everything downstream already copes; see createEmptyRepo.
-     */
-    const { repo: created } =
-      assignment.templateOwner && assignment.templateRepo
-        ? await generateRepoFromTemplate({
-            installationId,
-            templateOwner: assignment.templateOwner,
-            templateRepo: assignment.templateRepo,
-            owner: org,
-            name: repoName,
-            private: assignment.visibility === 'PRIVATE',
-            description: `Assignment repository for ${user.githubLogin}`,
-          })
-        : await createEmptyRepo({
-            installationId,
-            owner: org,
-            name: repoName,
-            private: assignment.visibility === 'PRIVATE',
-            description: `Assignment repository for ${user.githubLogin}`,
-          })
-
-    await db.assignmentRepo.update({
-      where: { id: repo.id },
-      data: {
-        githubRepoId: created.id,
-        fullName: created.fullName,
-        htmlUrl: created.htmlUrl,
-      },
-    })
 
     // 3. Give the student access. Returns an invitation they must accept when
     //    they are not already an org member.

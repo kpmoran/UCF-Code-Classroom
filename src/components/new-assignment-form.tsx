@@ -34,6 +34,7 @@ export function NewAssignmentForm({
   defaultStudentPermission,
 }: Props) {
   const [type, setType] = useState<'INDIVIDUAL' | 'GROUP'>('INDIVIDUAL')
+  const [repoSource, setRepoSource] = useState<'CREATE' | 'EXISTING'>('CREATE')
   const [title, setTitle] = useState('')
   const [prefixEdited, setPrefixEdited] = useState(false)
   const [prefix, setPrefix] = useState('')
@@ -56,11 +57,13 @@ export function NewAssignmentForm({
   }
 
   const samplePrefix = prefix || 'assignment'
+  const adoptsExisting = repoSource === 'EXISTING'
 
   return (
     <form action={formAction} className="space-y-5">
       <input type="hidden" name="classroomId" value={classroomId} />
       <input type="hidden" name="type" value={type} />
+      <input type="hidden" name="repoSource" value={repoSource} />
       {publish ? <input type="hidden" name="publish" value="on" /> : null}
 
       {state && !state.ok ? (
@@ -128,19 +131,87 @@ export function NewAssignmentForm({
           <CardTitle>Starting point</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div>
-            <Label htmlFor="template">Template (optional)</Label>
-            <TemplateCombobox
-              id="template"
-              name="template"
-              orgLogin={orgLogin}
-              loadTemplates={() => getTemplateSuggestions(classroomId)}
-            />
-            {fieldError('template') ? <FieldError>{fieldError('template')}</FieldError> : null}
-          </div>
+          <fieldset>
+            <legend className="text-sm font-medium mb-1.5">Repositories</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(
+                [
+                  [
+                    'CREATE',
+                    type === 'GROUP' ? 'Create one per team' : 'Create one per student',
+                    type === 'GROUP'
+                      ? 'A new repository for each team, from the template or empty.'
+                      : 'A new repository for each student, from the template or empty.',
+                  ],
+                  [
+                    'EXISTING',
+                    'Use repositories that exist',
+                    type === 'GROUP'
+                      ? 'Link each team to a repository already in the organization. Nothing is created.'
+                      : 'Assign each student a repository already in the organization. Nothing is created.',
+                  ],
+                ] as const
+              ).map(([value, label, hint]) => (
+                <label
+                  key={value}
+                  className={`flex gap-2 items-start rounded-md border px-3 py-2.5 cursor-pointer text-sm ${
+                    repoSource === value ? 'border-accent bg-surface-subtle' : 'border-border'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="repoSourceChoice"
+                    value={value}
+                    checked={repoSource === value}
+                    onChange={() => setRepoSource(value)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium">{label}</span>
+                    <span className="block text-xs text-muted">{hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {adoptsExisting ? (
+              <FieldHint>
+                {type === 'GROUP' ? (
+                  <>
+                    Create the teams after saving, then link each one to its repository from
+                    the Teams panel.
+                  </>
+                ) : (
+                  <>
+                    Assign each student their repository from the Repositories tab after
+                    saving. Students cannot accept this assignment themselves, and more than
+                    one student may be assigned the same repository.
+                  </>
+                )}{' '}
+                Access, deadlines, autograding and feedback pull requests all work the same
+                way.
+              </FieldHint>
+            ) : null}
+          </fieldset>
+
+          {adoptsExisting ? null : (
+            <div>
+              <Label htmlFor="template">Template (optional)</Label>
+              <TemplateCombobox
+                id="template"
+                name="template"
+                orgLogin={orgLogin}
+                loadTemplates={() => getTemplateSuggestions(classroomId)}
+              />
+              {fieldError('template') ? <FieldError>{fieldError('template')}</FieldError> : null}
+            </div>
+          )}
 
           <div>
-            <Label htmlFor="repoPrefix">Repository name prefix</Label>
+            <Label htmlFor="repoPrefix">
+              {adoptsExisting && type === 'GROUP'
+                ? 'Team name prefix'
+                : 'Repository name prefix'}
+            </Label>
             <Input
               id="repoPrefix"
               name="repoPrefix"
@@ -154,11 +225,29 @@ export function NewAssignmentForm({
               placeholder="hw1"
             />
             <FieldHint>
-              Repositories will be named like{' '}
-              <span className="font-mono">
-                {samplePrefix}-{type === 'GROUP' ? 'team-name' : 'github-username'}
-              </span>
-              . This cannot be changed once repositories exist.
+              {adoptsExisting ? (
+                type === 'GROUP' ? (
+                  <>
+                    Repositories keep the names they already have. The prefix is still used
+                    for the GitHub team, named like{' '}
+                    <span className="font-mono">{samplePrefix}-team-name</span>, so two
+                    assignments do not collide on the same team.
+                  </>
+                ) : (
+                  <>
+                    Not used for naming — repositories keep the names they already have. Kept
+                    for the record, and in case this assignment ever creates one.
+                  </>
+                )
+              ) : (
+                <>
+                  Repositories will be named like{' '}
+                  <span className="font-mono">
+                    {samplePrefix}-{type === 'GROUP' ? 'team-name' : 'github-username'}
+                  </span>
+                  . This cannot be changed once repositories exist.
+                </>
+              )}
             </FieldHint>
             {fieldError('repoPrefix') ? <FieldError>{fieldError('repoPrefix')}</FieldError> : null}
           </div>
@@ -177,6 +266,11 @@ export function NewAssignmentForm({
                 <option value="PRIVATE">Private</option>
                 <option value="PUBLIC">Public</option>
               </Select>
+              {adoptsExisting ? (
+                <FieldHint>
+                  Not applied — linked repositories keep the visibility they already have.
+                </FieldHint>
+              ) : null}
             </div>
             <div>
               <Label htmlFor="studentPermission">Student access</Label>
@@ -217,16 +311,18 @@ export function NewAssignmentForm({
           <CardHeader>
             <CardTitle>Teams</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="maxTeams">Maximum teams</Label>
-              <Input id="maxTeams" name="maxTeams" type="number" min={1} max={500} />
-              <FieldHint>Optional.</FieldHint>
-            </div>
-            <div>
-              <Label htmlFor="maxTeamSize">Maximum team size</Label>
-              <Input id="maxTeamSize" name="maxTeamSize" type="number" min={1} max={50} />
-              <FieldHint>Optional.</FieldHint>
+          <CardContent className="space-y-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="maxTeams">Maximum teams</Label>
+                <Input id="maxTeams" name="maxTeams" type="number" min={1} max={500} />
+                <FieldHint>Optional.</FieldHint>
+              </div>
+              <div>
+                <Label htmlFor="maxTeamSize">Maximum team size</Label>
+                <Input id="maxTeamSize" name="maxTeamSize" type="number" min={1} max={50} />
+                <FieldHint>Optional.</FieldHint>
+              </div>
             </div>
           </CardContent>
         </Card>

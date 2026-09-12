@@ -33,12 +33,15 @@ export function AssignmentStudentPanel({
   hasRosterEntry,
   githubLogin,
   orgLogin,
+  repoSource,
   repo,
 }: {
   assignmentId: string
   hasRosterEntry: boolean
   githubLogin: string | null
   orgLogin: string
+  /** EXISTING means the instructor assigns the repository; there is nothing to accept. */
+  repoSource: 'CREATE' | 'EXISTING'
   repo: RepoState | null
 }) {
   const router = useRouter()
@@ -81,6 +84,25 @@ export function AssignmentStudentPanel({
   }
 
   if (!repo) {
+    /*
+     * Nothing to accept when the repositories already exist: which one this student
+     * works in is the instructor's decision. Showing a button that can only fail
+     * would be worse than saying so.
+     */
+    if (repoSource === 'EXISTING') {
+      return (
+        <Card>
+          <CardHeader>
+            <CardTitle>Waiting on your instructor</CardTitle>
+            <CardDescription>
+              This assignment uses a repository that already exists. Your instructor assigns
+              yours — it will appear here, with a link, once they have.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )
+    }
+
     return (
       <Card>
         <CardHeader>

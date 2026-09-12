@@ -56,7 +56,13 @@ export async function revokeStudentAccess(job: RevokeStudentAccessJob): Promise<
         ...(job.assignmentId ? { id: job.assignmentId } : {}),
       },
     },
-    select: { id: true, fullName: true, invitationId: true, assignmentId: true },
+    select: {
+      id: true,
+      fullName: true,
+      githubRepoId: true,
+      invitationId: true,
+      assignmentId: true,
+    },
   })
 
   // Team repositories the student can reach through a GitHub team.
@@ -93,17 +99,40 @@ export async function revokeStudentAccess(job: RevokeStudentAccessJob): Promise<
         await cancelInvitation(installationId, org, name, repo.invitationId)
       }
 
-      await applyRepoAction(installationId, org, name, job.repoAction)
+      /*
+       * Never archive or delete a repository somebody else is still working in.
+       *
+       * Students can be assigned the same existing repository, and each has their own
+       * row here. Removing one of them is a statement about that student, not about
+       * the repository — archiving it would freeze the others' work, and deleting it
+       * would destroy it, with no warning and no way back. Access is still revoked;
+       * only the destructive half is downgraded, and the row says so.
+       */
+      const sharedWith = repo.githubRepoId
+        ? await db.assignmentRepo.count({
+            where: { githubRepoId: repo.githubRepoId, NOT: { id: repo.id } },
+          })
+        : 0
+
+      const effectiveAction = sharedWith > 0 ? 'KEEP' : job.repoAction
+
+      await applyRepoAction(installationId, org, name, effectiveAction)
 
       await db.assignmentRepo.update({
         where: { id: repo.id },
         data: {
           invitationId: null,
-          ...(job.repoAction === 'DELETE'
+          ...(effectiveAction === 'DELETE'
             ? { githubRepoId: null, htmlUrl: null, failureReason: 'Repository deleted.' }
-            : job.repoAction === 'ARCHIVE'
+            : effectiveAction === 'ARCHIVE'
               ? { failureReason: 'Repository archived (read-only on GitHub).' }
-              : { failureReason: 'Access revoked; repository left intact.' }),
+              : {
+                  failureReason:
+                    sharedWith > 0 && job.repoAction !== 'KEEP'
+                      ? `Access revoked. The repository was left intact because ${sharedWith} ` +
+                        `other student${sharedWith === 1 ? ' is' : 's are'} assigned to it.`
+                      : 'Access revoked; repository left intact.',
+                }),
         },
       })
     } catch (error) {

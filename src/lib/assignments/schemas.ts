@@ -65,6 +65,9 @@ export const createAssignmentSchema = z.object({
 
   maxTeams: z.coerce.number().int().min(1).max(500).optional(),
   maxTeamSize: z.coerce.number().int().min(1).max(50).optional(),
+  // Applies to both assignment types: EXISTING means staff assign repositories that
+  // already exist rather than the app creating any.
+  repoSource: z.enum(['CREATE', 'EXISTING']).default('CREATE'),
 
   publish: z.coerce.boolean().default(false),
 })
@@ -72,12 +75,15 @@ export const createAssignmentSchema = z.object({
 export type CreateAssignmentInput = z.infer<typeof createAssignmentSchema>
 
 /**
- * Normalize a template reference.
+ * Normalize a repository reference.
  *
  * Instructors paste whatever they have: a full URL from the browser bar, an
  * `owner/repo` pair, or the bare repo name of something in their own org.
+ *
+ * Used for assignment templates and for the existing repository an instructor
+ * links to a team, which are the same parsing job from the same clipboard.
  */
-export function parseTemplateReference(
+export function parseRepoReference(
   input: string,
   defaultOwner: string,
 ): { owner: string; repo: string } | null {

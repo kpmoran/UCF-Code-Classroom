@@ -51,6 +51,7 @@ type RepoRow = {
 export function AssignmentStaffPanel({
   assignmentId,
   assignmentType,
+  repoSource,
   published,
   rosterClaimed,
   withoutRepo,
@@ -60,6 +61,8 @@ export function AssignmentStaffPanel({
 }: {
   assignmentId: string
   assignmentType: 'INDIVIDUAL' | 'GROUP'
+  /** EXISTING means nothing here creates repositories; staff assign ones that exist. */
+  repoSource: 'CREATE' | 'EXISTING'
   published: boolean
   classroomSlug: string
   rosterClaimed: number
@@ -82,6 +85,8 @@ export function AssignmentStaffPanel({
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+
+  const adoptsExisting = repoSource === 'EXISTING'
 
   const [removing, setRemoving] = useState<RepoRow | null>(null)
   const [repoAction, setRepoAction] = useState<RepoAction>('KEEP')
@@ -194,7 +199,11 @@ export function AssignmentStaffPanel({
         <CardHeader>
           <CardTitle>Provisioning</CardTitle>
           <CardDescription>
-            {assignmentType === 'GROUP'
+            {adoptsExisting
+              ? assignmentType === 'GROUP'
+                ? 'Repositories already exist — link each team to theirs from Settings → Teams.'
+                : 'Repositories already exist — assign each student theirs above.'
+              : assignmentType === 'GROUP'
               ? 'Group repositories are created when teams are formed.'
               : withoutRepo > 0
                 ? `${withoutRepo} registered student${withoutRepo === 1 ? '' : 's'} ${
@@ -205,7 +214,7 @@ export function AssignmentStaffPanel({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            {assignmentType === 'INDIVIDUAL' ? (
+            {assignmentType === 'INDIVIDUAL' && !adoptsExisting ? (
               <Button
                 variant="accent"
                 disabled={pending || withoutRepo === 0}
@@ -243,7 +252,7 @@ export function AssignmentStaffPanel({
             </Button>
           </div>
 
-          {withoutRepo > 0 && assignmentType === 'INDIVIDUAL' ? (
+          {withoutRepo > 0 && assignmentType === 'INDIVIDUAL' && !adoptsExisting ? (
             <p className="text-xs text-muted">
               Estimated {estimatedDuration}. GitHub limits how fast repositories can be
               created, so this is paced deliberately and continues in the background — you can
@@ -281,9 +290,13 @@ export function AssignmentStaffPanel({
               title={repos.length === 0 ? 'No repositories yet' : 'No matches'}
               description={
                 repos.length === 0
-                  ? assignmentType === 'GROUP'
-                    ? 'Repositories appear once students form teams.'
-                    : 'Students can accept the assignment themselves, or create all repositories now.'
+                  ? adoptsExisting
+                    ? assignmentType === 'GROUP'
+                      ? 'Repositories appear once each team is linked to one.'
+                      : 'Repositories appear once you assign them to students above.'
+                    : assignmentType === 'GROUP'
+                      ? 'Repositories appear once students form teams.'
+                      : 'Students can accept the assignment themselves, or create all repositories now.'
                   : 'Try a different search.'
               }
             />
