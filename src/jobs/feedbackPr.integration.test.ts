@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 import { MANIFEST_PATH, WORKFLOW_PATH } from '@/lib/autograding/renderWorkflow'
 import { getInstallationOctokit } from '@/lib/github/app'
 import { GitHubDomainError } from '@/lib/github/errors'
-import { getRef } from '@/lib/github/operations/contents'
+import { getFile, getRef } from '@/lib/github/operations/contents'
 import { listAppInstallations } from '@/lib/github/operations/orgs'
 import { FEEDBACK_BRANCH } from '@/lib/github/operations/pulls'
 import { deleteRepo } from '@/lib/github/operations/repos'
@@ -181,7 +181,12 @@ describe('feedback pull requests', () => {
   it('pins the baseline after setup commits, not at the template commit', async () => {
     const { repoName } = await provision()
 
-    const feedbackRef = await getRef(installationId, ORG, repoName, `heads/${FEEDBACK_BRANCH}`)
+    /*
+     * Polled, for the reason git refs always have to be: they are eventually
+     * consistent, so a read taken straight after provisioning can answer 404 for a
+     * branch that exists. The assertion is unchanged — the branch must appear.
+     */
+    const feedbackRef = await waitForRef(repoName, `heads/${FEEDBACK_BRANCH}`)
     expect(feedbackRef, 'feedback branch was not created').not.toBeNull()
 
     const octokit = getInstallationOctokit(installationId)
@@ -204,6 +209,23 @@ describe('feedback pull requests', () => {
     // The baseline must be at the head after setup — not the template commit.
     expect(feedbackRef!.sha).toBe(headSha)
     expect(feedbackRef!.sha).not.toBe(firstCommitSha)
+
+    /*
+     * And the property that actually matters, asserted directly rather than inferred
+     * from sha equality: both injected files are present *at the baseline ref*.
+     *
+     * Comparing shas alone is timing-dependent — it only catches the stale-ref race
+     * when the read that produced `headSha` happens to have settled. Asking for the
+     * files at the baseline is true or false regardless of when anything settled, and
+     * it is exactly what decides whether they show up in the student's diff.
+     */
+    for (const path of [WORKFLOW_PATH, MANIFEST_PATH]) {
+      const atBaseline = await getFile(installationId, ORG, repoName, path, feedbackRef!.sha)
+      expect(
+        atBaseline,
+        `${path} is missing at the feedback baseline, so it will appear as student work`,
+      ).not.toBeNull()
+    }
   }, 300_000)
 
   it('is skipped until the student pushes, then opens', async () => {
@@ -336,3 +358,18 @@ describe('feedback pull requests', () => {
     expect(row.feedbackPrNumber).toBeNull()
   }, 300_000)
 })
+
+/** Poll until a ref becomes visible. See the note at its call site. */
+async function waitForRef(
+  repo: string,
+  ref: string,
+  timeoutMs = 15_000,
+): Promise<{ sha: string } | null> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    const found = await getRef(installationId, ORG, repo, ref)
+    if (found) return found
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+  return null
+}
