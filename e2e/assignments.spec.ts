@@ -105,6 +105,52 @@ test('instructor creates an assignment, validating the template against GitHub',
   expect(assignment?.publishedAt).not.toBeNull()
 })
 
+/**
+ * Creating an assignment that adopts repositories which already exist.
+ *
+ * Worth its own test because the template picker is *not rendered* in this mode,
+ * and a field that was never on the page comes back from FormData as null rather
+ * than absent. That failed validation on a field the form had deliberately hidden,
+ * so the only symptom was "Please correct the highlighted fields" with nothing
+ * highlighted — invisible to every other test here, all of which fill the template
+ * in. Both assignment types, because both hide the same field.
+ */
+for (const type of ['Individual', 'Group'] as const) {
+  test(`instructor creates a ${type.toLowerCase()} assignment that uses existing repositories`, async ({
+    page,
+    context,
+  }) => {
+    const instructor = await seedSession('kpmoran', { isSiteAdmin: true })
+    await applySession(context, instructor)
+
+    await page.goto(`/classrooms/${SLUG}/assignments/new`)
+    const title = `E2E Existing ${type}`
+    await page.getByLabel('Title').fill(title)
+
+    if (type === 'Group') {
+      await page.getByRole('radio', { name: /^Group/ }).check()
+    }
+    await page.getByRole('radio', { name: /Use repositories that exist/ }).check()
+
+    // The picker is gone, which is the precondition for the bug this covers.
+    await expect(templateField(page)).toHaveCount(0)
+
+    await page.getByRole('button', { name: /Create and publish/ }).click()
+
+    // The whole point: it saves, rather than reporting an error about a field
+    // that is not on the screen.
+    await page.waitForURL(/\/assignments\/[a-z0-9]+$/)
+    await expect(page.getByRole('heading', { name: title })).toBeVisible()
+
+    const assignment = await db.assignment.findFirst({
+      where: { classroomId, title },
+    })
+    expect(assignment?.repoSource).toBe('EXISTING')
+    expect(assignment?.templateRepo).toBeNull()
+    expect(assignment?.type).toBe(type.toUpperCase())
+  })
+}
+
 test('a student accepts and the worker provisions a real repository', async ({
   page,
   context,

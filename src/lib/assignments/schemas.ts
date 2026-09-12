@@ -29,13 +29,21 @@ export const createAssignmentSchema = z.object({
    * empty repository to push into. "Write this from scratch" is an ordinary thing
    * to set, so blank is a real choice here rather than a missing value — which is
    * why the field is emptied to `undefined` rather than rejected.
+   *
+   * `nullish` rather than `optional`, and the distinction is not academic: the
+   * picker is not rendered at all when the assignment adopts repositories that
+   * already exist, and `FormData.get` answers **null** for a field that was never
+   * on the page — which `optional` rejects. That produced the worst shape of form
+   * error there is: "Please correct the highlighted fields" with nothing
+   * highlighted, because the only invalid field was one the form had deliberately
+   * hidden. Any conditionally rendered field needs this.
    */
   template: z
     .string()
     .trim()
     .max(300)
-    .optional()
-    .transform((value) => (value === '' ? undefined : value))
+    .nullish()
+    .transform((value) => (value === '' || value == null ? undefined : value))
     .refine((value) => value === undefined || value.length >= 3, {
       message: 'Enter a template as owner/repo, or leave it blank for empty repositories.',
     }),
