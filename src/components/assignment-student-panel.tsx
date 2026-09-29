@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { SubmissionSummaryPanel } from '@/components/submission-summary'
 import { acceptAssignment } from '@/lib/assignments/actions'
+import { resendMyInvitation } from '@/lib/invitations/actions'
 import type { SubmissionSummary } from '@/lib/deadlines/summary'
 
 type RepoState = {
@@ -46,6 +47,8 @@ export function AssignmentStudentPanel({
 }) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
+  const [resendMessage, setResendMessage] = useState<string | null>(null)
+  const [resendError, setResendError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
   const inProgress = repo?.status === 'QUEUED' || repo?.status === 'PROVISIONING'
@@ -66,6 +69,26 @@ export function AssignmentStudentPanel({
       const result = await acceptAssignment(formData)
       if (!result.ok) setError(result.error)
       else router.refresh()
+    })
+  }
+
+  function onResend() {
+    setResendMessage(null)
+    setResendError(null)
+    startTransition(async () => {
+      const formData = new FormData()
+      formData.set('assignmentId', assignmentId)
+      const result = await resendMyInvitation(formData)
+      if (!result.ok) {
+        setResendError(result.error)
+        return
+      }
+      setResendMessage(
+        result.data.resent === 0
+          ? 'You already have access — no invitation needed.'
+          : 'A new invitation is on its way. GitHub will email it within a few minutes.',
+      )
+      router.refresh()
     })
   }
 
@@ -182,7 +205,29 @@ export function AssignmentStudentPanel({
                 <p className="mt-1 text-xs">
                   GitHub emailed you an invitation to this repository. You cannot push until
                   you accept it — check your email, or look for the notification on GitHub.
+                  Invitations expire after seven days; if yours has, or you cannot find it,
+                  request a new one.
                 </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  disabled={pending}
+                  onClick={onResend}
+                >
+                  {pending ? 'Sending…' : 'Send me a new invitation'}
+                </Button>
+                {resendMessage ? (
+                  <p role="status" className="mt-2 text-xs">
+                    {resendMessage}
+                  </p>
+                ) : null}
+                {resendError ? (
+                  <p role="alert" className="mt-2 text-xs text-danger">
+                    {resendError}
+                  </p>
+                ) : null}
               </div>
             ) : null}
 

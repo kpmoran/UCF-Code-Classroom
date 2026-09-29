@@ -7,6 +7,7 @@ import { grantStaffRepoAccess } from './grantStaffRepoAccess'
 import { enforceDeadlines } from './enforceDeadlines'
 import { ensureFeedbackPr, sweepFeedbackPrs } from './ensureFeedbackPr'
 import { ingestAutogradeRun } from './ingestAutogradeRun'
+import { resendInvitation } from './resendInvitation'
 import { revokeStudentAccess } from './revokeStudentAccess'
 import { getBoss, QUEUES } from './queue'
 
@@ -124,6 +125,18 @@ export async function startWorker(): Promise<void> {
     async (jobs) => {
       for (const job of jobs) {
         await grantStaffRepoAccess(job.data)
+      }
+    },
+  )
+
+  await boss.work<{ assignmentRepoId: string }>(
+    QUEUES.resendInvitation,
+    // One at a time: each resend is two content-creating writes, and a class's worth
+    // arriving together should pace itself against the budget, not race for it.
+    { batchSize: 1, localConcurrency: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        await resendInvitation(job.data)
       }
     },
   )

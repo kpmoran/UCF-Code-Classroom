@@ -33,6 +33,18 @@ describe('describeAuditAction', () => {
     )
   })
 
+  it('names the repository for a single resend, and counts a bulk one', () => {
+    expect(
+      describeAuditAction('assignment.resend_invitations', { resent: 1, repo: 'org/hw3-ava' }),
+    ).toBe('Resent the GitHub invitation for org/hw3-ava')
+    expect(describeAuditAction('assignment.resend_invitations', { resent: 4 })).toBe(
+      'Resent 4 unaccepted GitHub invitations',
+    )
+    expect(
+      describeAuditAction('assignment.resend_own_invitation', { repo: 'org/hw3-ava' }),
+    ).toBe('Requested a new GitHub invitation for org/hw3-ava')
+  })
+
   it('distinguishes a move from an initial team assignment', () => {
     expect(describeAuditAction('team.move_member', { from: 'Knights', to: 'Squires' })).toBe(
       'Moved a student from team “Knights” to “Squires”',

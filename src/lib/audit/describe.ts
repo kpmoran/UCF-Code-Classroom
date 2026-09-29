@@ -68,6 +68,14 @@ export function describeAuditAction(action: string, detail: AuditDetail): string
       return `Queued ${num(detail, 'queued') ?? 0} repositories for creation`
     case 'assignment.retry_failed':
       return `Re-queued ${num(detail, 'retried') ?? 0} failed repositories`
+    case 'assignment.resend_invitations': {
+      const repo = str(detail, 'repo')
+      if (repo) return `Resent the GitHub invitation for ${repo}`
+      const resent = num(detail, 'resent') ?? 0
+      return `Resent ${resent} unaccepted GitHub invitation${resent === 1 ? '' : 's'}`
+    }
+    case 'assignment.resend_own_invitation':
+      return `Requested a new GitHub invitation for ${str(detail, 'repo') ?? 'their repository'}`
     case 'assignment.remove_student': {
       const repo = str(detail, 'repo')
       const what = REPO_ACTION_TEXT[str(detail, 'repoAction') ?? ''] ?? 'access revoked'

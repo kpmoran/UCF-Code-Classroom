@@ -14,7 +14,7 @@ import {
   retryFailedRepos,
   setAssignmentPublished,
 } from '@/lib/assignments/actions'
-import { recheckInvitations } from '@/lib/invitations/actions'
+import { recheckInvitations, resendInvitations } from '@/lib/invitations/actions'
 import { removeFromAssignment } from '@/lib/members/actions'
 
 type RepoAction = 'KEEP' | 'ARCHIVE' | 'DELETE'
@@ -157,7 +157,7 @@ export function AssignmentStaffPanel({
       }
 
       const data = result.data as
-        | { queued?: number; skipped?: number; eta?: string; retried?: number }
+        | { queued?: number; skipped?: number; eta?: string; retried?: number; resent?: number }
         | undefined
 
       if (data?.queued !== undefined) {
@@ -165,6 +165,13 @@ export function AssignmentStaffPanel({
           data.queued === 0
             ? 'Every registered student already has a repository.'
             : `Queued ${data.queued} repositor${data.queued === 1 ? 'y' : 'ies'}. Estimated ${data.eta}.`,
+        )
+      } else if (data?.resent !== undefined) {
+        setMessage(
+          data.resent === 0
+            ? 'No unaccepted invitations to resend.'
+            : `Resending ${data.resent} invitation${data.resent === 1 ? '' : 's'}. GitHub will ` +
+                'email each student a new one within a few minutes, valid for seven days.',
         )
       } else if (data?.retried !== undefined) {
         setMessage(
@@ -238,6 +245,12 @@ export function AssignmentStaffPanel({
             {pendingInvitations > 0 ? (
               <Button variant="outline" disabled={pending} onClick={() => run(recheckInvitations)}>
                 Re-check {pendingInvitations} invitation{pendingInvitations === 1 ? '' : 's'}
+              </Button>
+            ) : null}
+
+            {pendingInvitations > 0 ? (
+              <Button variant="outline" disabled={pending} onClick={() => run(resendInvitations)}>
+                Resend {pendingInvitations} invitation{pendingInvitations === 1 ? '' : 's'}
               </Button>
             ) : null}
 
@@ -364,7 +377,19 @@ export function AssignmentStaffPanel({
                       <div className="flex flex-col gap-1 items-start">
                         <StatusBadge status={r.status} />
                         {r.pendingInvitation && r.status === 'READY' ? (
-                          <Badge tone="warning">Invite not accepted</Badge>
+                          <>
+                            <Badge tone="warning">Invite not accepted</Badge>
+                            <button
+                              type="button"
+                              className="text-xs text-accent hover:underline disabled:opacity-50"
+                              disabled={pending}
+                              onClick={() =>
+                                run(resendInvitations, { assignmentRepoId: r.id })
+                              }
+                            >
+                              Resend invitation
+                            </button>
+                          </>
                         ) : null}
                         {r.failureReason ? (
                           <span className="text-xs text-danger max-w-xs">{r.failureReason}</span>
