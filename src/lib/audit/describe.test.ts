@@ -76,6 +76,15 @@ describe('describeAuditAction', () => {
     ).toBe('Revoked GitHub access for @ava-dev')
   })
 
+  it('describes a rename with both the old and the new title', () => {
+    expect(describeAuditAction('assignment.rename', { from: 'HW1', to: 'HW1: Unit Testing' })).toBe(
+      'Renamed the assignment “HW1” to “HW1: Unit Testing”',
+    )
+    expect(describeAuditAction('assignment.rename', null)).toBe(
+      'Renamed an assignment to “untitled”',
+    )
+  })
+
   it('never returns an empty description for an unknown action', () => {
     // A new action added later must still render a readable row.
     expect(describeAuditAction('some.future.action', null)).toBe('some.future.action')

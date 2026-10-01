@@ -64,6 +64,13 @@ export function describeAuditAction(action: string, detail: AuditDetail): string
       return `Published “${str(detail, 'title') ?? 'an assignment'}”`
     case 'assignment.unpublish':
       return `Unpublished “${str(detail, 'title') ?? 'an assignment'}”`
+    case 'assignment.rename': {
+      const from = str(detail, 'from')
+      const to = str(detail, 'to')
+      return from
+        ? `Renamed the assignment “${from}” to “${to ?? 'untitled'}”`
+        : `Renamed an assignment to “${to ?? 'untitled'}”`
+    }
     case 'assignment.bulk_provision':
       return `Queued ${num(detail, 'queued') ?? 0} repositories for creation`
     case 'assignment.retry_failed':

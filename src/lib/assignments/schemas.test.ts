@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { createAssignmentSchema, parseDeadline, parseRepoReference } from './schemas'
+import {
+  createAssignmentSchema,
+  parseDeadline,
+  parseRepoReference,
+  renameAssignmentSchema,
+} from './schemas'
 
 describe('parseRepoReference', () => {
   it('accepts owner/repo', () => {
@@ -151,5 +156,24 @@ describe('createAssignmentSchema', () => {
       submission({ ...BASE, type: 'INDIVIDUAL', repoSource: 'CREATE', template: 'x' }),
     )
     expect(parsed.success).toBe(false)
+  })
+})
+
+describe('renameAssignmentSchema', () => {
+  it('trims the new title', () => {
+    const parsed = renameAssignmentSchema.parse({ assignmentId: 'a1', title: '  HW1: Unit Testing  ' })
+    expect(parsed.title).toBe('HW1: Unit Testing')
+  })
+
+  it('holds a rename to the same rules as a new title', () => {
+    expect(renameAssignmentSchema.safeParse({ assignmentId: 'a1', title: '  ab ' }).success).toBe(false)
+    expect(
+      renameAssignmentSchema.safeParse({ assignmentId: 'a1', title: 'x'.repeat(201) }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a missing title rather than blanking the assignment', () => {
+    // FormData.get answers null for a field that was not sent.
+    expect(renameAssignmentSchema.safeParse({ assignmentId: 'a1', title: null }).success).toBe(false)
   })
 })
