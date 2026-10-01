@@ -13,13 +13,16 @@ const optionalText = (max: number) =>
     .optional()
     .transform((v) => (v ? v : null))
 
+/** One rule for a title, whether it is being set for the first time or changed. */
+const assignmentTitle = z
+  .string()
+  .trim()
+  .min(3, 'Give the assignment a title of at least 3 characters.')
+  .max(200, 'Keep the title under 200 characters.')
+
 export const createAssignmentSchema = z.object({
   classroomId: z.string().min(1),
-  title: z
-    .string()
-    .trim()
-    .min(3, 'Give the assignment a title of at least 3 characters.')
-    .max(200, 'Keep the title under 200 characters.'),
+  title: assignmentTitle,
   type: z.enum(['INDIVIDUAL', 'GROUP']),
 
   /*
@@ -81,6 +84,15 @@ export const createAssignmentSchema = z.object({
 })
 
 export type CreateAssignmentInput = z.infer<typeof createAssignmentSchema>
+
+/**
+ * Renaming changes the title only. The slug stays as it was created, because it is
+ * what a syllabus or course website links to, and a rename must not break those links.
+ */
+export const renameAssignmentSchema = z.object({
+  assignmentId: z.string().min(1),
+  title: assignmentTitle,
+})
 
 /**
  * Normalize a repository reference.

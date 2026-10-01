@@ -23,6 +23,7 @@ import {
   createAssignmentSchema,
   parseDeadline,
   parseRepoReference,
+  renameAssignmentSchema,
   type AssignmentActionResult,
 } from './schemas'
 
@@ -258,6 +259,55 @@ export async function setAssignmentPublished(
 
   revalidatePath(`/classrooms/${assignment.classroom.slug}`)
   revalidatePath(`/classrooms/${assignment.classroom.slug}/assignments/${assignmentId}`)
+  return { ok: true, data: undefined }
+}
+
+/**
+ * Change an assignment's title.
+ *
+ * Only the title changes. The slug stays as it was, so links already sent around
+ * keep working, and repositories are named from `repoPrefix`, so none of them move.
+ */
+export async function renameAssignment(
+  formData: FormData,
+): Promise<AssignmentActionResult> {
+  const parsed = renameAssignmentSchema.safeParse({
+    assignmentId: formData.get('assignmentId'),
+    title: formData.get('title'),
+  })
+  if (!parsed.success) {
+    const message = parsed.error.issues[0]?.message ?? 'That title could not be used.'
+    return { ok: false, error: message, fieldErrors: { title: message } }
+  }
+  const { assignmentId, title } = parsed.data
+
+  const assignment = await db.assignment.findUnique({
+    where: { id: assignmentId },
+    select: { id: true, classroomId: true, title: true, classroom: { select: { slug: true } } },
+  })
+  if (!assignment) return { ok: false, error: 'That assignment no longer exists.' }
+
+  const { user } = await requireInstructor(assignment.classroomId)
+
+  // Saving the same title is not a change, and an audit entry for it would be noise.
+  if (title === assignment.title) return { ok: true, data: undefined }
+
+  await db.assignment.update({ where: { id: assignmentId }, data: { title } })
+
+  await db.auditLog.create({
+    data: {
+      classroomId: assignment.classroomId,
+      actorUserId: user.id,
+      action: 'assignment.rename',
+      targetType: 'assignment',
+      targetId: assignmentId,
+      detail: { from: assignment.title, to: title },
+    },
+  })
+
+  revalidatePath(`/classrooms/${assignment.classroom.slug}`)
+  revalidatePath(`/classrooms/${assignment.classroom.slug}/assignments/${assignmentId}`)
+  revalidatePath(`/classrooms/${assignment.classroom.slug}/grades`)
   return { ok: true, data: undefined }
 }
 

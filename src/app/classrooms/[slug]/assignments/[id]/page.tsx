@@ -3,6 +3,7 @@ import { forbidden, notFound } from 'next/navigation'
 
 import { AssignmentStaffPanel } from '@/components/assignment-staff-panel'
 import { AssignmentStudentPanel } from '@/components/assignment-student-panel'
+import { AssignmentTitle } from '@/components/assignment-title'
 import { AutogradingPanel } from '@/components/autograding-panel'
 import { DeadlinePanel } from '@/components/deadline-panel'
 import { FeedbackPrPanel } from '@/components/feedback-pr-panel'
@@ -92,7 +93,12 @@ export default async function AssignmentPage(
           </Link>
           <div className="flex items-start justify-between gap-4 flex-wrap mt-2">
             <div className="min-w-0">
-              <h1 className="text-2xl font-semibold">{assignment.title}</h1>
+              <AssignmentTitle
+                assignmentId={assignment.id}
+                title={assignment.title}
+                // Instructors only, matching who may create and publish assignments.
+                canRename={roleSatisfies(role, 'INSTRUCTOR')}
+              />
               <p className="text-sm text-muted mt-1">
                 {assignment.type === 'GROUP' ? 'Group' : 'Individual'} ·{' '}
                 {deadlineLabel ? `due ${deadlineLabel}` : 'no deadline'} ·{' '}
