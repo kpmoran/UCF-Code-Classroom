@@ -13,7 +13,14 @@ import { checkOrgOwnership, listAppInstallations } from './operations/orgs'
  */
 
 const ORG = process.env.VERIFY_ORG ?? 'ucf-code-connect-sandbox'
-const INSTRUCTOR = process.env.VERIFY_USER ?? 'kpmoran'
+/*
+ * The ownership check is about an instructor, not the stand-in student. VERIFY_USER
+ * is meant to be repointed at a machine account that is only a plain member of the
+ * organization (see "Keeping the test emails out of your inbox" in README.md), and
+ * that account must not have to be an owner just to keep this test green. So the
+ * owner is its own variable, defaulting to the person who actually owns the sandbox.
+ */
+const INSTRUCTOR = process.env.VERIFY_OWNER ?? 'kpmoran'
 
 let installationId: bigint
 

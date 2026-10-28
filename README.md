@@ -1260,7 +1260,10 @@ worth knowing: **running the suites on your own machine sends those emails too**
 is not only a CI setting.
 
 Two things the bot account needs, and nothing else: membership of the organization, so
-team and collaborator operations resolve, and no special permissions.
+team and collaborator operations resolve, and no special permissions. The one test that
+does need an owner — the ownership check in `connectivity.integration.test.ts` — reads
+`VERIFY_OWNER` instead, which defaults to `kpmoran` and only needs setting if the sandbox
+changes hands.
 
 ### Secrets to add
 
