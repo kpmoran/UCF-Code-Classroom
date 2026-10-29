@@ -108,6 +108,15 @@ export function describeAuditAction(action: string, detail: AuditDetail): string
     }
     case 'team.remove_member':
       return `Removed a student from team “${str(detail, 'teamName') ?? 'unnamed'}”`
+    case 'team.copy': {
+      const teams = num(detail, 'teams') ?? 0
+      const skipped = num(detail, 'skipped') ?? 0
+      const from = str(detail, 'from') ?? 'another assignment'
+      return (
+        `Copied ${teams} team${teams === 1 ? '' : 's'} from “${from}”` +
+        (skipped > 0 ? ` (${skipped} former student${skipped === 1 ? '' : 's'} left off)` : '')
+      )
+    }
 
     case 'member.role_change': {
       const from = str(detail, 'from')

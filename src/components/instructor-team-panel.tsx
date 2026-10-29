@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input, Select } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/table'
 import {
+  copyTeamsFromAssignment,
   createStudentTeam,
   linkTeamRepo,
   moveStudentToTeam,
@@ -39,6 +40,13 @@ export type UnassignedStudent = {
   githubLogin: string | null
 }
 
+/** A group assignment in the same classroom whose teams could be copied here. */
+export type CopySource = {
+  id: string
+  title: string
+  teamCount: number
+}
+
 /**
  * Team management for staff.
  *
@@ -52,15 +60,20 @@ export function InstructorTeamPanel({
   repoSource,
   teams,
   unassigned,
+  copySources,
 }: {
   assignmentId: string
   orgLogin: string
   repoSource: 'CREATE' | 'EXISTING'
   teams: InstructorTeamView[]
   unassigned: UnassignedStudent[]
+  copySources: CopySource[]
 }) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [copySource, setCopySource] = useState('')
+  const [copyProvision, setCopyProvision] = useState(true)
   const [newTeamName, setNewTeamName] = useState('')
   const [repoInputs, setRepoInputs] = useState<Record<string, string>>({})
   const [pending, startTransition] = useTransition()
@@ -95,11 +108,45 @@ export function InstructorTeamPanel({
     })
   }
 
+  function copyTeams() {
+    setError(null)
+    setNotice(null)
+    startTransition(async () => {
+      const fd = new FormData()
+      fd.set('assignmentId', assignmentId)
+      fd.set('sourceAssignmentId', copySource)
+      fd.set('provision', copyProvision ? 'true' : 'false')
+      const result = await copyTeamsFromAssignment(fd)
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      const { teams: n, students, skipped } = result.data
+      const summary = `Copied ${n} team${n === 1 ? '' : 's'} with ${students} student${
+        students === 1 ? '' : 's'
+      }.`
+      const leftOff =
+        skipped.length > 0
+          ? ` Left off ${skipped.length} no longer on the roster: ${skipped
+              .map((s) => `${s.name} (${s.team})`)
+              .join(', ')}.`
+          : ''
+      setNotice(summary + leftOff)
+      setCopySource('')
+      router.refresh()
+    })
+  }
+
   return (
     <div className="space-y-4">
       {error ? (
         <p role="alert" className="text-sm rounded-md bg-danger-subtle text-danger px-3 py-2">
           {error}
+        </p>
+      ) : null}
+      {notice ? (
+        <p role="status" className="text-sm rounded-md bg-success-subtle text-success px-3 py-2">
+          {notice}
         </p>
       ) : null}
 
@@ -115,6 +162,52 @@ export function InstructorTeamPanel({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/*
+            * Offered only while there are no teams: the copy refuses otherwise, and
+            * a control that always refuses is worse than one that is not there.
+            */}
+          {teams.length === 0 && copySources.length > 0 ? (
+            <div className="rounded-md border border-border bg-surface-subtle p-3 space-y-3">
+              <div>
+                <p className="text-sm font-medium">Start from another assignment’s teams</p>
+                <p className="text-xs text-muted">
+                  Copies each team and its current members. Students no longer on the roster
+                  are left off, and each team gets its own GitHub team for this assignment.
+                </p>
+              </div>
+              <div className="flex gap-2 flex-wrap items-center">
+                <Select
+                  aria-label="Copy teams from"
+                  value={copySource}
+                  disabled={pending}
+                  onChange={(e) => setCopySource(e.target.value)}
+                  className="w-auto max-w-full"
+                >
+                  <option value="">Choose an assignment…</option>
+                  {copySources.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title} · {s.teamCount} team{s.teamCount === 1 ? '' : 's'}
+                    </option>
+                  ))}
+                </Select>
+                <Button variant="outline" disabled={pending || !copySource} onClick={copyTeams}>
+                  {pending ? 'Copying…' : 'Copy teams'}
+                </Button>
+              </div>
+              {!adoptsExisting ? (
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={copyProvision}
+                    disabled={pending}
+                    onChange={(e) => setCopyProvision(e.target.checked)}
+                  />
+                  Create each team’s repository right away
+                </label>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="flex gap-2">
             <Input
               aria-label="New team name"

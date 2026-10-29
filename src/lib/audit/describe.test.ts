@@ -54,6 +54,15 @@ describe('describeAuditAction', () => {
     )
   })
 
+  it('describes a team copy, mentioning students who were left off', () => {
+    expect(describeAuditAction('team.copy', { from: 'Milestone 1', teams: 6, skipped: 0 })).toBe(
+      'Copied 6 teams from “Milestone 1”',
+    )
+    expect(describeAuditAction('team.copy', { from: 'Milestone 1', teams: 1, skipped: 2 })).toBe(
+      'Copied 1 team from “Milestone 1” (2 former students left off)',
+    )
+  })
+
   it('mentions when an empty team was cleaned up on leaving', () => {
     expect(
       describeAuditAction('team.leave', { teamName: 'Knights', teamDeleted: true }),

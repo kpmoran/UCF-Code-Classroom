@@ -397,13 +397,20 @@ async function StaffTeamSection({
   assignmentId: string
   classroomId: string
 }) {
-  const [assignment, teams, claimedEntries] = await Promise.all([
+  const [assignment, copySources, teams, claimedEntries] = await Promise.all([
     db.assignment.findUniqueOrThrow({
       where: { id: assignmentId },
       select: {
         repoSource: true,
         classroom: { select: { githubOrgLogin: true } },
       },
+    }),
+    // The classroom's other group assignments that have teams to copy. Only
+    // offered while this one has none, so the list is cheap to fetch regardless.
+    db.assignment.findMany({
+      where: { classroomId, type: 'GROUP', id: { not: assignmentId }, teams: { some: {} } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, title: true, _count: { select: { teams: true } } },
     }),
     db.team.findMany({
       where: { assignmentId },
@@ -463,6 +470,7 @@ async function StaffTeamSection({
           name: e.displayName,
           githubLogin: e.claimedByUser?.githubLogin ?? null,
         }))}
+      copySources={copySources.map((a) => ({ id: a.id, title: a.title, teamCount: a._count.teams }))}
     />
   )
 }

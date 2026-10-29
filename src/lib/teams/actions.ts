@@ -13,6 +13,7 @@ import { canAdoptRepo } from '@/lib/repos/adopt'
 import { slugifyTeamName } from '@/lib/github/repoName'
 import { enqueue, QUEUES } from '@/jobs/queue'
 
+import { planTeamCopy } from './copy'
 import {
   canCreateTeam,
   canJoinTeam,
@@ -639,4 +640,153 @@ export async function linkTeamRepo(formData: FormData): Promise<TeamActionResult
 
   revalidatePath(`/classrooms/${assignment.classroomSlug}/assignments/${assignmentId}`)
   return { ok: true, data: undefined }
+}
+
+export type CopyTeamsResult = {
+  teams: number
+  students: number
+  /** Members of the source teams who are no longer on the roster, and so were left off. */
+  skipped: Array<{ name: string; team: string }>
+}
+
+/**
+ * Instructor: copy another group assignment's teams into this one.
+ *
+ * The decisions — what counts as copyable, who is left off, why a copy is
+ * refused — are in `./copy`, pure and tested. This loads both sides, applies the
+ * plan in one transaction so a failure part-way leaves nothing behind, and
+ * optionally starts provisioning, which goes through the same per-team path as
+ * everything else so each copy gets its own GitHub team named for *this*
+ * assignment.
+ */
+export async function copyTeamsFromAssignment(
+  formData: FormData,
+): Promise<TeamActionResult<CopyTeamsResult>> {
+  const assignmentId = String(formData.get('assignmentId') ?? '')
+  const sourceAssignmentId = String(formData.get('sourceAssignmentId') ?? '')
+  const provision = String(formData.get('provision') ?? '') === 'true'
+
+  const assignment = await loadGroupAssignment(assignmentId)
+  if (!assignment) return { ok: false, error: 'That assignment no longer exists.' }
+
+  const { user } = await requireInstructor(assignment.classroomId)
+
+  if (assignment.type !== 'GROUP') {
+    return { ok: false, error: 'This is not a group assignment.' }
+  }
+  if (assignment.archived) return { ok: false, error: 'This classroom is archived.' }
+  if (sourceAssignmentId === assignmentId) {
+    return { ok: false, error: 'An assignment cannot copy teams from itself.' }
+  }
+
+  // Same classroom only: a team is a set of roster entries, and another
+  // classroom's roster is a different set of people with the same names.
+  const source = await db.assignment.findFirst({
+    where: { id: sourceAssignmentId, classroomId: assignment.classroomId, type: 'GROUP' },
+    select: {
+      id: true,
+      title: true,
+      teams: {
+        orderBy: { name: 'asc' },
+        select: { name: true, members: { select: { userId: true, role: true } } },
+      },
+    },
+  })
+  if (!source) {
+    return { ok: false, error: 'Pick a group assignment in this classroom to copy teams from.' }
+  }
+
+  const [existing, roster] = await Promise.all([
+    snapshotTeams(assignmentId),
+    db.rosterEntry.findMany({
+      where: { classroomId: assignment.classroomId, removedAt: null, claimedByUserId: { not: null } },
+      select: { claimedByUserId: true, displayName: true },
+    }),
+  ])
+  const rosterNames = new Map(roster.map((e) => [e.claimedByUserId!, e.displayName]))
+
+  const plan = planTeamCopy({
+    source: source.teams,
+    existingNames: existing.map((t) => t.name),
+    constraints: assignment.constraints,
+    eligible: new Set(rosterNames.keys()),
+    slugify: slugifyTeamName,
+  })
+  if (!plan.ok) return { ok: false, error: plan.reason }
+
+  const created = await db.$transaction(async (tx) => {
+    const rows: Array<{ id: string; memberCount: number }> = []
+    for (const team of plan.teams) {
+      const row = await tx.team.create({
+        data: {
+          assignmentId,
+          name: team.name,
+          createdByUserId: user.id,
+          members: {
+            create: team.members.map((m) => ({ userId: m.userId, role: m.role })),
+          },
+        },
+        select: { id: true },
+      })
+      rows.push({ id: row.id, memberCount: team.members.length })
+    }
+    return rows
+  })
+
+  const students = plan.teams.reduce((n, t) => n + t.members.length, 0)
+  const willProvision = provision && assignment.repoSource === 'CREATE'
+
+  await db.auditLog.create({
+    data: {
+      classroomId: assignment.classroomId,
+      actorUserId: user.id,
+      action: 'team.copy',
+      targetType: 'assignment',
+      targetId: assignmentId,
+      detail: {
+        from: source.title,
+        fromAssignmentId: source.id,
+        teams: created.length,
+        students,
+        skipped: plan.skipped.length,
+        provisioned: willProvision,
+      },
+    },
+  })
+
+  // Only teams with someone on them: provisioning an empty team is refused
+  // elsewhere for a reason, and would only produce a FAILED row here.
+  if (willProvision) {
+    for (const team of created) {
+      if (team.memberCount > 0) {
+        await ensureTeamProvisioning(team.id, assignmentId, assignment.repoSource)
+      }
+    }
+  }
+
+  // Skipped students are, by definition, not on the roster any more, so their
+  // names come from their accounts.
+  const skippedUsers =
+    plan.skipped.length > 0
+      ? await db.user.findMany({
+          where: { id: { in: plan.skipped.map((s) => s.userId) } },
+          select: { id: true, name: true, githubLogin: true },
+        })
+      : []
+  const userNames = new Map(
+    skippedUsers.map((u) => [u.id, u.name ?? u.githubLogin ?? 'a former student']),
+  )
+
+  revalidatePath(`/classrooms/${assignment.classroomSlug}/assignments/${assignmentId}`)
+  return {
+    ok: true,
+    data: {
+      teams: created.length,
+      students,
+      skipped: plan.skipped.map((s) => ({
+        name: userNames.get(s.userId) ?? 'a former student',
+        team: s.team,
+      })),
+    },
+  }
 }
