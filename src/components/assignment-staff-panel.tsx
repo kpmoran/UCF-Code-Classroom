@@ -16,8 +16,17 @@ import {
 } from '@/lib/assignments/actions'
 import { recheckInvitations, resendInvitations } from '@/lib/invitations/actions'
 import { removeFromAssignment } from '@/lib/members/actions'
+import {
+  byStudent,
+  matchesQuery,
+  studentRowMatches,
+  type RowMember,
+} from '@/lib/assignments/staffRows'
 
 type RepoAction = 'KEEP' | 'ARCHIVE' | 'DELETE'
+
+/** How a group assignment's table is laid out: one row per team, or one per member. */
+type GroupView = 'team' | 'student'
 
 type RepoRow = {
   id: string
@@ -30,6 +39,8 @@ type RepoRow = {
   projectUrl: string | null
   who: string
   githubLogin: string | null
+  /** The team's members for a team repository; empty for an individual one. */
+  members: RowMember[]
   acceptedAt: string
   lastPushedAt: string | null
   submission: {
@@ -82,6 +93,7 @@ export function AssignmentStaffPanel({
     (r) => r.pendingInvitation && r.status === 'READY',
   ).length
   const [query, setQuery] = useState('')
+  const [view, setView] = useState<GroupView>('team')
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
@@ -129,15 +141,19 @@ export function AssignmentStaffPanel({
     return () => clearInterval(timer)
   }, [inFlight, router])
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return repos
-    return repos.filter((r) =>
-      [r.who, r.githubLogin, r.fullName].filter(Boolean).some((v) =>
-        String(v).toLowerCase().includes(q),
-      ),
-    )
-  }, [repos, query])
+  /*
+   * The toggle only means something on a group assignment. An individual one is
+   * already one row per student, so it stays on the team-shaped rows, which for
+   * it are the student-shaped rows.
+   */
+  const perStudent = assignmentType === 'GROUP' && view === 'student'
+
+  const filtered = useMemo(() => repos.filter((r) => matchesQuery(r, query)), [repos, query])
+  const studentRows = useMemo(
+    () => (perStudent ? byStudent(repos).filter((r) => studentRowMatches(r, query)) : []),
+    [repos, query, perStudent],
+  )
+  const visibleCount = perStudent ? studentRows.length : filtered.length
 
   function run(action: (fd: FormData) => Promise<unknown>, extra?: Record<string, string>) {
     setError(null)
@@ -287,17 +303,26 @@ export function AssignmentStaffPanel({
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <h2 className="text-lg font-semibold">Repositories</h2>
-          <div className="w-64">
-            <Input
-              aria-label="Search repositories"
-              placeholder="Search student or repository"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
+          <div className="flex items-center gap-3 flex-wrap">
+            {assignmentType === 'GROUP' ? (
+              <ViewToggle view={view} onChange={setView} />
+            ) : null}
+            <div className="w-64">
+              <Input
+                aria-label="Search repositories"
+                placeholder={
+                  assignmentType === 'GROUP'
+                    ? 'Search student, team, or repository'
+                    : 'Search student or repository'
+                }
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
           </div>
         </div>
 
-        {filtered.length === 0 ? (
+        {visibleCount === 0 ? (
           <div className="rounded-lg border border-border">
             <EmptyState
               title={repos.length === 0 ? 'No repositories yet' : 'No matches'}
@@ -314,6 +339,63 @@ export function AssignmentStaffPanel({
               }
             />
           </div>
+        ) : perStudent ? (
+          <TableWrap>
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Student</Th>
+                  <Th>Team</Th>
+                  <Th>Repository</Th>
+                  <Th>Status</Th>
+                  <Th>Score</Th>
+                  <Th>Last push</Th>
+                  <Th>Submitted</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {studentRows.map(({ key, repo: r, member }) => (
+                  <tr key={key}>
+                    <Td className="whitespace-nowrap">
+                      {member ? (
+                        <>
+                          <span className="font-medium">{member.name}</span>
+                          {member.githubLogin ? (
+                            <span className="block text-xs text-muted font-mono">
+                              @{member.githubLogin}
+                            </span>
+                          ) : null}
+                          {member.membershipState === 'pending' ? (
+                            <Badge tone="warning" className="mt-1">
+                              invite pending
+                            </Badge>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted">no members</span>
+                      )}
+                    </Td>
+                    <Td className="whitespace-nowrap">{r.who.replace(/^Team /, '')}</Td>
+                    <RepoCells
+                      repo={r}
+                      pending={pending}
+                      onResend={() => run(resendInvitations, { assignmentRepoId: r.id })}
+                    />
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+            {/*
+              * Removal is per repository, which for a team is the whole team's — a
+              * per-student row has no honest "remove" to offer. Moving a student
+              * between teams is a team-panel operation, and the table says where.
+              */}
+            <p className="px-3 py-2 text-xs text-muted border-t border-border">
+              Each student’s status, score, and submission are their team’s. To move a
+              student between teams, or remove a team’s repository, use the team view or
+              Settings → Teams.
+            </p>
+          </TableWrap>
         ) : (
           <TableWrap>
             <Table>
@@ -338,78 +420,29 @@ export function AssignmentStaffPanel({
                           @{r.githubLogin}
                         </span>
                       ) : null}
-                    </Td>
-                    <Td>
-                      {r.htmlUrl ? (
-                        <a
-                          href={r.htmlUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-mono text-xs hover:underline"
-                        >
-                          {r.fullName}
-                        </a>
-                      ) : (
-                        <span className="text-xs text-muted">{r.fullName ?? '—'}</span>
-                      )}
-                      {r.feedbackPrNumber && r.htmlUrl ? (
-                        <a
-                          href={`${r.htmlUrl}/pull/${r.feedbackPrNumber}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block text-xs text-accent hover:underline"
-                        >
-                          Feedback #{r.feedbackPrNumber}
-                        </a>
-                      ) : null}
-                      {r.projectUrl ? (
-                        <a
-                          href={r.projectUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block text-xs text-accent hover:underline"
-                        >
-                          Project board
-                        </a>
+                      {r.members.length > 0 ? (
+                        <ul className="mt-1 space-y-0.5 text-xs text-muted">
+                          {r.members.map((m) => (
+                            <li key={m.userId} className="flex items-center gap-1.5 flex-wrap">
+                              <span>{m.name}</span>
+                              {m.githubLogin ? (
+                                <span className="font-mono">@{m.githubLogin}</span>
+                              ) : null}
+                              {m.membershipState === 'pending' ? (
+                                <Badge tone="warning">invite pending</Badge>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : assignmentType === 'GROUP' ? (
+                        <span className="block mt-1 text-xs text-muted">no members</span>
                       ) : null}
                     </Td>
-                    <Td>
-                      <div className="flex flex-col gap-1 items-start">
-                        <StatusBadge status={r.status} />
-                        {r.pendingInvitation && r.status === 'READY' ? (
-                          <>
-                            <Badge tone="warning">Invite not accepted</Badge>
-                            <button
-                              type="button"
-                              className="text-xs text-accent hover:underline disabled:opacity-50"
-                              disabled={pending}
-                              onClick={() =>
-                                run(resendInvitations, { assignmentRepoId: r.id })
-                              }
-                            >
-                              Resend invitation
-                            </button>
-                          </>
-                        ) : null}
-                        {r.failureReason ? (
-                          <span className="text-xs text-danger max-w-xs">{r.failureReason}</span>
-                        ) : null}
-                      </div>
-                    </Td>
-                    <Td className="whitespace-nowrap">
-                      <ScoreCell autograde={r.autograde} />
-                    </Td>
-                    <Td className="text-xs text-muted whitespace-nowrap">
-                      {r.lastPushedAt
-                        ? new Date(r.lastPushedAt).toLocaleString('en-US', {
-                            dateStyle: 'short',
-                            timeStyle: 'short',
-                          })
-                        : 'no pushes'}
-                    </Td>
-                    <Td className="whitespace-nowrap">
-                      <SubmissionCell submission={r.submission} htmlUrl={r.htmlUrl} />
-                    </Td>
+                    <RepoCells
+                      repo={r}
+                      pending={pending}
+                      onResend={() => run(resendInvitations, { assignmentRepoId: r.id })}
+                    />
                     <Td className="text-right">
                       <Button
                         type="button"
@@ -498,6 +531,134 @@ export function AssignmentStaffPanel({
         </fieldset>
       </ConfirmDialog>
     </div>
+  )
+}
+
+/**
+ * Team rows or student rows. A pressed-button pair rather than tabs: the two
+ * views share one search box and one table region, so they are a display
+ * setting, not separate panels.
+ */
+function ViewToggle({
+  view,
+  onChange,
+}: {
+  view: GroupView
+  onChange: (view: GroupView) => void
+}) {
+  const options: [GroupView, string][] = [
+    ['team', 'By team'],
+    ['student', 'By student'],
+  ]
+  return (
+    <div role="group" aria-label="Table rows" className="inline-flex rounded-md border border-border-strong overflow-hidden">
+      {options.map(([value, label]) => {
+        const selected = view === value
+        return (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => onChange(value)}
+            className={`px-3 h-10 text-sm font-medium transition-colors ${
+              selected
+                ? 'bg-foreground text-background'
+                : 'bg-surface text-muted hover:text-foreground hover:bg-surface-subtle'
+            }`}
+          >
+            {label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * The cells that describe a repository rather than who owns it, shared by both
+ * views so a team's status reads identically whether it is one row or four.
+ */
+function RepoCells({
+  repo: r,
+  pending,
+  onResend,
+}: {
+  repo: RepoRow
+  pending: boolean
+  onResend: () => void
+}) {
+  return (
+    <>
+      <Td>
+        {r.htmlUrl ? (
+          <a
+            href={r.htmlUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="font-mono text-xs hover:underline"
+          >
+            {r.fullName}
+          </a>
+        ) : (
+          <span className="text-xs text-muted">{r.fullName ?? '—'}</span>
+        )}
+        {r.feedbackPrNumber && r.htmlUrl ? (
+          <a
+            href={`${r.htmlUrl}/pull/${r.feedbackPrNumber}`}
+            target="_blank"
+            rel="noreferrer"
+            className="block text-xs text-accent hover:underline"
+          >
+            Feedback #{r.feedbackPrNumber}
+          </a>
+        ) : null}
+        {r.projectUrl ? (
+          <a
+            href={r.projectUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="block text-xs text-accent hover:underline"
+          >
+            Project board
+          </a>
+        ) : null}
+      </Td>
+      <Td>
+        <div className="flex flex-col gap-1 items-start">
+          <StatusBadge status={r.status} />
+          {r.pendingInvitation && r.status === 'READY' ? (
+            <>
+              <Badge tone="warning">Invite not accepted</Badge>
+              <button
+                type="button"
+                className="text-xs text-accent hover:underline disabled:opacity-50"
+                disabled={pending}
+                onClick={onResend}
+              >
+                Resend invitation
+              </button>
+            </>
+          ) : null}
+          {r.failureReason ? (
+            <span className="text-xs text-danger max-w-xs">{r.failureReason}</span>
+          ) : null}
+        </div>
+      </Td>
+      <Td className="whitespace-nowrap">
+        <ScoreCell autograde={r.autograde} />
+      </Td>
+      <Td className="text-xs text-muted whitespace-nowrap">
+        {r.lastPushedAt
+          ? new Date(r.lastPushedAt).toLocaleString('en-US', {
+              dateStyle: 'short',
+              timeStyle: 'short',
+            })
+          : 'no pushes'}
+      </Td>
+      <Td className="whitespace-nowrap">
+        <SubmissionCell submission={r.submission} htmlUrl={r.htmlUrl} />
+      </Td>
+    </>
   )
 }
 

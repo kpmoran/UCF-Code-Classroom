@@ -184,7 +184,7 @@ async function StaffView({
   orgLogin: string
   installationId: bigint
 }) {
-  const [repos, rosterClaimed, budget, extensions] = await Promise.all([
+  const [repos, claimedEntries, budget, extensions] = await Promise.all([
     db.assignmentRepo.findMany({
       where: { assignmentId: assignment.id },
       select: {
@@ -203,7 +203,21 @@ async function StaffView({
         userId: true,
         teamId: true,
         user: { select: { id: true, githubLogin: true, name: true } },
-        team: { select: { id: true, name: true } },
+        team: {
+          select: {
+            id: true,
+            name: true,
+            // Shown under the team name, and expanded into one row per member in
+            // the by-student view, so a search for a student finds their team.
+            members: {
+              select: {
+                userId: true,
+                githubMembershipState: true,
+                user: { select: { name: true, githubLogin: true } },
+              },
+            },
+          },
+        },
         // Newest run only: the table shows current standing, and the full history
         // lives on the repository itself.
         autogradeRuns: {
@@ -214,8 +228,9 @@ async function StaffView({
       },
       orderBy: { acceptedAt: 'asc' },
     }),
-    db.rosterEntry.count({
+    db.rosterEntry.findMany({
       where: { classroomId, removedAt: null, claimedByUserId: { not: null } },
+      select: { claimedByUserId: true, displayName: true },
     }),
     getBudgetStatus(installationId),
     db.extension.findMany({
@@ -232,6 +247,11 @@ async function StaffView({
    * next to the pure functions that define it rather than being re-derived in a
    * client component that would have to be handed the whole extension list.
    */
+  const rosterClaimed = claimedEntries.length
+  // Roster names for team members, as the team panel shows them: the instructor
+  // knows students by the roster, not by whatever name is on their GitHub profile.
+  const rosterNames = new Map(claimedEntries.map((e) => [e.claimedByUserId!, e.displayName]))
+
   const extensionByUser = new Map(
     extensions.filter((e) => e.userId).map((e) => [e.userId as string, e.newDeadline]),
   )
@@ -314,6 +334,12 @@ async function StaffView({
         feedbackPrNumber: r.feedbackPrNumber,
         who: r.team ? `Team ${r.team.name}` : (r.user?.name ?? r.user?.githubLogin ?? 'Unknown'),
         githubLogin: r.user?.githubLogin ?? null,
+        members: (r.team?.members ?? []).map((m) => ({
+          userId: m.userId,
+          name: rosterNames.get(m.userId) ?? m.user.name ?? m.user.githubLogin ?? 'Unknown',
+          githubLogin: m.user.githubLogin,
+          membershipState: m.githubMembershipState,
+        })),
         acceptedAt: r.acceptedAt.toISOString(),
         lastPushedAt: r.lastPushedAt ? r.lastPushedAt.toISOString() : null,
         submission: summarizeSubmission(
