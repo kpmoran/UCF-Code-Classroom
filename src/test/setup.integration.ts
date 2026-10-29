@@ -1,3 +1,4 @@
+import { afterEach } from 'vitest'
 import { config } from 'dotenv'
 
 config({ path: '.env', quiet: true })
