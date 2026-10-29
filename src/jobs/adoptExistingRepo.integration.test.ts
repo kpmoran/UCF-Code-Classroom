@@ -39,6 +39,15 @@ const TEMPLATE = 'verify-template'
 const PREFIX = 'adopttest'
 const SLUG = 'adopttest-classroom'
 const TEAM_NAME = 'Adopters'
+/*
+ * A different team for the test that expects provisioning to fail. The job gets
+ * or creates the GitHub team before it looks for a linked repository, and the
+ * afterEach deletes whatever the previous test created — which GitHub can still
+ * report as present for a moment afterwards. Reusing the name then found the
+ * stale team, got a 404 adding the member, and threw instead of recording the
+ * failure this test is about.
+ */
+const UNLINKED_TEAM_NAME = 'Unlinked Adopters'
 
 /** Seeded stand-ins for repositories that predate the assignment. */
 const EXISTING_REPO = 'adopttest-legacy-project'
@@ -355,12 +364,12 @@ describe('adopting an existing repository — group', () => {
     const team = await db.team.create({
       data: {
         assignmentId: groupAssignmentId,
-        name: TEAM_NAME,
+        name: UNLINKED_TEAM_NAME,
         members: { create: { userId: studentUserId, role: 'LEADER' } },
       },
       select: { id: true },
     })
-    createdTeamSlugs.add(slugifyTeamName(`${PREFIX}-${TEAM_NAME}`))
+    createdTeamSlugs.add(slugifyTeamName(`${PREFIX}-${UNLINKED_TEAM_NAME}`))
 
     const row = await db.assignmentRepo.create({
       data: { assignmentId: groupAssignmentId, teamId: team.id, status: RepoStatus.QUEUED },
