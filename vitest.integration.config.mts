@@ -32,5 +32,13 @@ export default defineConfig({
     // shared rate budget, so nothing here may run concurrently.
     fileParallelism: false,
     sequence: { concurrent: false },
+    /*
+     * One retry, because the other side is GitHub. The production worker retries a
+     * job that hits a 504 or a slow template copy, with backoff, up to forty
+     * times; a test calls the job once and asserts. One retry is enough to tell a
+     * request GitHub dropped from a bug — a real failure fails twice — without
+     * hiding a test that is wrong half the time. The unit suite has no retry.
+     */
+    retry: 1,
   },
 })

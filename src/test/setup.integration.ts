@@ -18,3 +18,16 @@ config({ path: '.env', quiet: true })
  */
 process.env.GITHUB_CONTENT_CALLS_PER_MINUTE = '40'
 process.env.GITHUB_CONTENT_CALLS_PER_HOUR = '450'
+
+/*
+ * A short pause after each test, so GitHub has caught up with what the last one
+ * deleted before the next one creates something with the same name. Its reads
+ * are eventually consistent: a team or repository removed in an afterEach can
+ * still be reported as present a moment later, and a get-or-create that trusts
+ * that answer then 404s on its very next call. Registered here so every test
+ * file gets it without each one remembering to. Runs after the file's own
+ * afterEach hooks, which is where the deletions are.
+ */
+afterEach(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 1_500))
+})
