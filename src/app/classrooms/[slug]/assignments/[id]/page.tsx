@@ -23,6 +23,7 @@ import { StaffAccessPanel } from '@/components/staff-access-panel'
 import { Tabs } from '@/components/ui/tabs'
 import { toDateTimeLocal } from '@/lib/deadlines/format'
 import { summarizeSubmission } from '@/lib/deadlines/summary'
+import { teamLabel } from '@/lib/teams/label'
 import { canCreateTeam, describeConstraints } from '@/lib/teams/rules'
 import { estimateProvisioningMs, formatDuration, getBudgetStatus } from '@/lib/github/rateLimiter'
 
@@ -332,7 +333,8 @@ async function StaffView({
         pendingInvitation: r.invitationId !== null,
         projectUrl: r.projectUrl,
         feedbackPrNumber: r.feedbackPrNumber,
-        who: r.team ? `Team ${r.team.name}` : (r.user?.name ?? r.user?.githubLogin ?? 'Unknown'),
+        who: r.team ? teamLabel(r.team.name) : (r.user?.name ?? r.user?.githubLogin ?? 'Unknown'),
+        teamName: r.team?.name ?? null,
         githubLogin: r.user?.githubLogin ?? null,
         members: (r.team?.members ?? []).map((m) => ({
           userId: m.userId,
@@ -777,7 +779,7 @@ async function StaffDeadlineSection({
       }))}
       targets={
         assignmentType === 'GROUP'
-          ? teams.map((t) => ({ id: t.id, label: `Team ${t.name}`, kind: 'team' as const }))
+          ? teams.map((t) => ({ id: t.id, label: teamLabel(t.name), kind: 'team' as const }))
           : rosterEntries.map((r) => ({
               id: r.claimedByUserId!,
               label: r.displayName,

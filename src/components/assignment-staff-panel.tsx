@@ -38,6 +38,8 @@ type RepoRow = {
   feedbackPrNumber: number | null
   projectUrl: string | null
   who: string
+  /** The bare team name, for a column that is already headed "Team". Null for an individual repository. */
+  teamName: string | null
   githubLogin: string | null
   /** The team's members for a team repository; empty for an individual one. */
   members: RowMember[]
@@ -375,7 +377,7 @@ export function AssignmentStaffPanel({
                         <span className="text-xs text-muted">no members</span>
                       )}
                     </Td>
-                    <Td className="whitespace-nowrap">{r.who.replace(/^Team /, '')}</Td>
+                    <Td className="whitespace-nowrap">{r.teamName ?? r.who}</Td>
                     <RepoCells
                       repo={r}
                       pending={pending}
