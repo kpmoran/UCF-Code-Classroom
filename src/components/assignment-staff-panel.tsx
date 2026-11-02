@@ -19,6 +19,7 @@ import { removeFromAssignment } from '@/lib/members/actions'
 import {
   byStudent,
   matchesQuery,
+  pendingInvitationCount,
   studentRowMatches,
   type RowMember,
 } from '@/lib/assignments/staffRows'
@@ -91,9 +92,7 @@ export function AssignmentStaffPanel({
   repos: RepoRow[]
 }) {
   const router = useRouter()
-  const pendingInvitations = repos.filter(
-    (r) => r.pendingInvitation && r.status === 'READY',
-  ).length
+  const pendingInvitations = pendingInvitationCount(repos)
   const [query, setQuery] = useState('')
   const [view, setView] = useState<GroupView>('team')
   const [message, setMessage] = useState<string | null>(null)
@@ -175,7 +174,15 @@ export function AssignmentStaffPanel({
       }
 
       const data = result.data as
-        | { queued?: number; skipped?: number; eta?: string; retried?: number; resent?: number }
+        | {
+            queued?: number
+            skipped?: number
+            eta?: string
+            retried?: number
+            resent?: number
+            checked?: number
+            accepted?: number
+          }
         | undefined
 
       if (data?.queued !== undefined) {
@@ -194,6 +201,17 @@ export function AssignmentStaffPanel({
       } else if (data?.retried !== undefined) {
         setMessage(
           data.retried === 0 ? 'Nothing to retry.' : `Re-queued ${data.retried} repositories.`,
+        )
+      } else if (data?.checked !== undefined) {
+        const accepted = data.accepted ?? 0
+        setMessage(
+          data.checked === 0
+            ? 'No outstanding invitations to check.'
+            : accepted === 0
+              ? `Asked GitHub about ${data.checked} invitation${data.checked === 1 ? '' : 's'} — none accepted yet.`
+              : `${accepted} of ${data.checked} invitation${data.checked === 1 ? '' : 's'} ${
+                  accepted === 1 ? 'has' : 'have'
+                } been accepted.`,
         )
       }
       router.refresh()
@@ -266,7 +284,8 @@ export function AssignmentStaffPanel({
               </Button>
             ) : null}
 
-            {pendingInvitations > 0 ? (
+            {/* Team invitations come from the organization and cannot be re-sent from here. */}
+            {pendingInvitations > 0 && assignmentType === 'INDIVIDUAL' ? (
               <Button variant="outline" disabled={pending} onClick={() => run(resendInvitations)}>
                 Resend {pendingInvitations} invitation{pendingInvitations === 1 ? '' : 's'}
               </Button>

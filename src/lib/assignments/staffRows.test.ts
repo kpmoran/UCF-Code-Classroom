@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { byStudent, matchesQuery, studentRowMatches, type RowLike } from './staffRows'
+import {
+  byStudent,
+  matchesQuery,
+  pendingInvitationCount,
+  studentRowMatches,
+  type RowLike,
+} from './staffRows'
 
 const ava = { userId: 'u1', name: 'Knight, Ava', githubLogin: 'avak', membershipState: 'active' }
 const ben = { userId: 'u2', name: 'Baker, Ben', githubLogin: null, membershipState: 'pending' }
@@ -95,5 +101,31 @@ describe('studentRowMatches', () => {
     const [row] = byStudent([empty])
     expect(studentRowMatches(row!, 'nobody')).toBe(true)
     expect(studentRowMatches(row!, 'ava')).toBe(false)
+  })
+})
+
+describe('pendingInvitationCount', () => {
+  it('counts a ready individual repository with an unaccepted invitation once', () => {
+    expect(
+      pendingInvitationCount([
+        { status: 'READY', pendingInvitation: true, members: [] },
+        { status: 'READY', pendingInvitation: false, members: [] },
+      ]),
+    ).toBe(1)
+  })
+
+  it('ignores a repository invitation until the repository exists', () => {
+    expect(
+      pendingInvitationCount([{ status: 'PROVISIONING', pendingInvitation: true, members: [] }]),
+    ).toBe(0)
+  })
+
+  it('counts each team member whose team invitation is still pending, whatever the repository status', () => {
+    expect(
+      pendingInvitationCount([
+        { status: 'READY', pendingInvitation: false, members: [ava, ben] },
+        { status: 'PROVISIONING', pendingInvitation: false, members: [ben, cal] },
+      ]),
+    ).toBe(2)
   })
 })

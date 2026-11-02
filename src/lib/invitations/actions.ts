@@ -6,17 +6,20 @@ import { requireClassroomRole, requireInstructor, requireUser } from '@/lib/auth
 import { enqueueMany, QUEUES } from '@/jobs/queue'
 import { db } from '@/lib/db'
 import { reconcileInvitations } from '@/lib/invitations/reconcile'
+import { reconcileTeamMemberships } from '@/lib/teams/reconcile'
 
 export type InvitationActionResult<T = void> =
   | { ok: true; data: T }
   | { ok: false; error: string }
 
 /**
- * Re-check which repository invitations have actually been accepted.
+ * Re-check which invitations have actually been accepted — repository invitations
+ * on an individual assignment, team invitations on a group one.
  *
  * Needed because acceptance happens on GitHub and tells this app nothing: the row
- * keeps its invitation id, and both the student's page and the instructor's table go
- * on claiming an invitation is outstanding long after it was taken up.
+ * keeps its invitation id (or its `pending` membership), and both the student's page
+ * and the instructor's table go on claiming an invitation is outstanding long after
+ * it was taken up.
  */
 export async function recheckInvitations(
   formData: FormData,
@@ -25,13 +28,16 @@ export async function recheckInvitations(
 
   const assignment = await db.assignment.findUnique({
     where: { id: assignmentId },
-    select: { id: true, classroomId: true, classroom: { select: { slug: true } } },
+    select: { id: true, type: true, classroomId: true, classroom: { select: { slug: true } } },
   })
   if (!assignment) return { ok: false, error: 'That assignment no longer exists.' }
 
   await requireInstructor(assignment.classroomId)
 
-  const result = await reconcileInvitations(assignmentId)
+  const result =
+    assignment.type === 'GROUP'
+      ? await reconcileTeamMemberships(assignmentId)
+      : await reconcileInvitations(assignmentId)
 
   revalidatePath(`/classrooms/${assignment.classroom.slug}/assignments/${assignmentId}`)
   return { ok: true, data: result }

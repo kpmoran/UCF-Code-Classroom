@@ -80,3 +80,22 @@ export function studentRowMatches<R extends RowLike>(row: StudentRow<R>, query: 
   const own = [row.repo.who, row.repo.fullName, row.member?.name, row.member?.githubLogin]
   return own.some((v) => typeof v === 'string' && v.toLowerCase().includes(q))
 }
+
+/**
+ * How many GitHub invitations are still outstanding on an assignment.
+ *
+ * An individual repository carries at most one, its collaborator invitation, and
+ * only once the repository exists. A team repository carries none itself; its
+ * members each carry a team invitation instead, which is sent as soon as the
+ * team is created on GitHub, before the repository is.
+ */
+export function pendingInvitationCount(
+  repos: Array<{ status: string; pendingInvitation: boolean; members: RowMember[] }>,
+): number {
+  let count = 0
+  for (const repo of repos) {
+    if (repo.pendingInvitation && repo.status === 'READY') count += 1
+    count += repo.members.filter((m) => m.membershipState === 'pending').length
+  }
+  return count
+}

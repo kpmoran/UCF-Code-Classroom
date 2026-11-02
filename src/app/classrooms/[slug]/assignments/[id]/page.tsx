@@ -19,6 +19,7 @@ import { roleSatisfies } from '@/lib/auth/roles'
 import { callsPerRepo } from '@/lib/assignments/estimate'
 import { db } from '@/lib/db'
 import { reconcileInvitations } from '@/lib/invitations/reconcile'
+import { reconcileTeamMemberships } from '@/lib/teams/reconcile'
 import { StaffAccessPanel } from '@/components/staff-access-panel'
 import { Tabs } from '@/components/ui/tabs'
 import { toDateTimeLocal } from '@/lib/deadlines/format'
@@ -652,6 +653,17 @@ async function StudentTeamView({
 
   const yourTeam = teams.find((t) => t.members.some((m) => m.userId === userId))
   const createRule = canCreateTeam(constraints, teams.length, 'STUDENT')
+
+  /*
+   * As on the individual path: ask GitHub whether the student's own team invitation
+   * has been accepted, because nothing else will. One read, and only while their own
+   * membership is still recorded as pending — once it clears, this never runs again.
+   */
+  const yourMembership = yourTeam?.members.find((m) => m.userId === userId)
+  if (yourMembership?.githubMembershipState === 'pending') {
+    const { accepted } = await reconcileTeamMemberships(assignmentId, { userId })
+    if (accepted > 0) yourMembership.githubMembershipState = 'active'
+  }
 
   /*
    * Only the student's own team, and only their own team's extension.
