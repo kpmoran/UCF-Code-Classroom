@@ -142,6 +142,21 @@ model Classroom {
   // connected yet.
   staffTeamSlug String?
 
+  // Whether students are made members of the organization when they join, so each
+  // assignment repository is granted to them directly instead of by an invitation
+  // they must accept per repository. Invitations expire after seven days and GitHub
+  // never re-sends them, which is how students ended up locked out of their own
+  // repositories at a deadline.
+  //
+  // Off for classrooms created before this existed, so a term in progress does not
+  // change under its students; on by default for new ones.
+  studentOrgAccess Boolean @default(true)
+
+  // The org team holding this classroom's students. Membership only — it must never
+  // be granted access to a repository, because a team grant would override the
+  // direct-collaborator permission that deadline locking lowers. Created on demand.
+  studentTeamSlug String?
+
   // Defaults inherited by new assignments.
   defaultRepoVisibility   RepoVisibility    @default(PRIVATE)
   defaultStudentPermission StudentPermission @default(PUSH)
@@ -185,6 +200,20 @@ model ClassroomMember {
   userId      String
   role        ClassroomRole @default(STUDENT)
   joinedAt    DateTime      @default(now())
+
+  // Organization membership for students, when the classroom grants it (see
+  // Classroom.studentOrgAccess). `orgState` is null until an invitation is attempted,
+  // then 'pending', 'active', 'expired', 'failed' or 'removed'; `orgFailure` says why
+  // for a failure, or why a removal was refused. `orgInvitedAt` dates the current
+  // invitation, which GitHub expires after seven days.
+  orgState     String?
+  orgInvitedAt DateTime?
+  orgFailure   String?   @db.Text
+  // Whether this app made them a member. Only those it did are ever removed or
+  // converted at the end of a term: someone who was already in the organization — a
+  // lab member, a TA in another course — belongs there for reasons this app knows
+  // nothing about.
+  orgJoinedViaClassroom Boolean @default(false)
 
   classroom Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -1,5 +1,7 @@
 import { Badge } from '@/components/ui/badge'
+import { getOrgAccessSettings } from '@/lib/github/operations/orgMembers'
 import { checkOrgOwnership } from '@/lib/github/operations/orgs'
+import { orgAccessProblem } from '@/lib/students/orgRules'
 
 /**
  * The organization card on the classroom settings page, and its loading state.
@@ -91,4 +93,67 @@ export async function OrgOwnershipPanel({
       ) : null}
     </>
   )
+}
+
+/** Shown while the organization's settings are being read. */
+export function OrgAccessCheckSkeleton() {
+  return (
+    <Badge tone="neutral" aria-live="polite">
+      Checking the organization’s base permission…
+    </Badge>
+  )
+}
+
+/**
+ * Whether the organization is safe to make students members of.
+ *
+ * The base repository permission is the whole question: anything above "No
+ * permission" lets every member read every private repository, which for a
+ * classroom means every student reading every other student's work. Read live for
+ * the same reason as the role: it is changed on GitHub, and this page is where an
+ * instructor would look when something seems wrong.
+ */
+export async function OrgAccessCheckPanel({
+  installationId,
+  orgLogin,
+}: {
+  installationId: bigint
+  orgLogin: string
+}) {
+  let settings: { baseRepositoryPermission: string | null } | null = null
+  try {
+    settings = await getOrgAccessSettings(installationId, orgLogin)
+  } catch {
+    settings = null
+  }
+
+  if (!settings) {
+    return (
+      <p className="text-muted">
+        Could not reach GitHub to check the organization’s base repository permission. It must
+        be “No permission” (under Member privileges) before students become members.
+      </p>
+    )
+  }
+
+  const problem = orgAccessProblem(settings)
+  if (problem) {
+    return (
+      <div role="alert" className="rounded-md bg-warning-subtle text-warning px-3 py-2">
+        {problem} Invitations are refused until it is.
+      </div>
+    )
+  }
+
+  if (settings.baseRepositoryPermission === null) {
+    return (
+      <p className="text-muted">
+        GitHub did not report the organization’s base repository permission. Check that it is
+        “No permission” under Member privileges; students who become members would otherwise be
+        able to read each other’s repositories.
+      </p>
+    )
+  }
+
+  return <Badge tone="success">Base repository permission: No permission</Badge>
 }

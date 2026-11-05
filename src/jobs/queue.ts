@@ -28,6 +28,9 @@ export const QUEUES = {
   createProjectBoard: 'create-project-board',
   grantStaffRepoAccess: 'grant-staff-repo-access',
   resendInvitation: 'resend-invitation',
+  resendTeamInvitation: 'resend-team-invitation',
+  inviteStudentToOrg: 'invite-student-to-org',
+  removeStudentFromOrg: 'remove-student-from-org',
 } as const
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
@@ -134,6 +137,36 @@ export type ResendInvitationJob = {
   assignmentRepoId: string
 }
 
+/**
+ * Replace one student's unaccepted team invitation with a fresh one. The team
+ * counterpart of `ResendInvitationJob`: a team invitation is an organization
+ * invitation, so the outstanding one is cancelled and the student re-added.
+ */
+export type ResendTeamInvitationJob = {
+  teamMemberId: string
+}
+
+/** Invite one student to the organization through the classroom's student team. */
+export type InviteStudentToOrgJob = {
+  classroomMemberId: string
+  /** Cancel an outstanding invitation first and issue a new one, with a new expiry. */
+  resend?: boolean
+}
+
+/**
+ * Take one student out of the organization at the end of a term, or when they
+ * leave the classroom. Keyed by classroom and user rather than by the membership
+ * row, because removal from the classroom deletes that row before the job runs;
+ * `joinedViaClassroom` carries what the row knew for that case.
+ */
+export type RemoveStudentFromOrgJob = {
+  classroomId: string
+  userId: string
+  /** CONVERT keeps their direct repository access as an outside collaborator. */
+  mode: 'CONVERT' | 'REMOVE'
+  joinedViaClassroom?: boolean
+}
+
 /** Carries no payload; scans for repositories still awaiting a feedback PR. */
 export type SweepFeedbackPrsJob = Record<string, never>
 
@@ -156,6 +189,9 @@ type JobPayloads = {
   [QUEUES.createProjectBoard]: CreateProjectBoardJob
   [QUEUES.grantStaffRepoAccess]: GrantStaffRepoAccessJob
   [QUEUES.resendInvitation]: ResendInvitationJob
+  [QUEUES.resendTeamInvitation]: ResendTeamInvitationJob
+  [QUEUES.inviteStudentToOrg]: InviteStudentToOrgJob
+  [QUEUES.removeStudentFromOrg]: RemoveStudentFromOrgJob
 }
 
 /**

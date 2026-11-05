@@ -284,8 +284,8 @@ export function AssignmentStaffPanel({
               </Button>
             ) : null}
 
-            {/* Team invitations come from the organization and cannot be re-sent from here. */}
-            {pendingInvitations > 0 && assignmentType === 'INDIVIDUAL' ? (
+            {/* On a group assignment this cancels each outstanding team invitation and re-adds the student. */}
+            {pendingInvitations > 0 ? (
               <Button variant="outline" disabled={pending} onClick={() => run(resendInvitations)}>
                 Resend {pendingInvitations} invitation{pendingInvitations === 1 ? '' : 's'}
               </Button>
@@ -387,9 +387,16 @@ export function AssignmentStaffPanel({
                             </span>
                           ) : null}
                           {member.membershipState === 'pending' ? (
-                            <Badge tone="warning" className="mt-1">
-                              invite pending
-                            </Badge>
+                            <span className="flex items-center gap-1.5 mt-1">
+                              <Badge tone="warning">invite pending</Badge>
+                              <ResendMemberInvitation
+                                member={member}
+                                pending={pending}
+                                onResend={(teamMemberId) =>
+                                  run(resendInvitations, { teamMemberId })
+                                }
+                              />
+                            </span>
                           ) : null}
                         </>
                       ) : (
@@ -450,7 +457,16 @@ export function AssignmentStaffPanel({
                                 <span className="font-mono">@{m.githubLogin}</span>
                               ) : null}
                               {m.membershipState === 'pending' ? (
-                                <Badge tone="warning">invite pending</Badge>
+                                <>
+                                  <Badge tone="warning">invite pending</Badge>
+                                  <ResendMemberInvitation
+                                    member={m}
+                                    pending={pending}
+                                    onResend={(teamMemberId) =>
+                                      run(resendInvitations, { teamMemberId })
+                                    }
+                                  />
+                                </>
                               ) : null}
                             </li>
                           ))}
@@ -592,6 +608,30 @@ function ViewToggle({
         )
       })}
     </div>
+  )
+}
+
+/** The per-student resend on a group assignment, next to the member's badge. */
+function ResendMemberInvitation({
+  member,
+  pending,
+  onResend,
+}: {
+  member: RowMember
+  pending: boolean
+  onResend: (teamMemberId: string) => void
+}) {
+  if (!member.teamMemberId || !member.githubLogin) return null
+  const id = member.teamMemberId
+  return (
+    <button
+      type="button"
+      className="text-xs text-accent hover:underline disabled:opacity-50"
+      disabled={pending}
+      onClick={() => onResend(id)}
+    >
+      Resend
+    </button>
   )
 }
 

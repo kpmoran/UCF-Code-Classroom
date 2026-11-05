@@ -7,7 +7,10 @@ import { grantStaffRepoAccess } from './grantStaffRepoAccess'
 import { enforceDeadlines } from './enforceDeadlines'
 import { ensureFeedbackPr, sweepFeedbackPrs } from './ensureFeedbackPr'
 import { ingestAutogradeRun } from './ingestAutogradeRun'
+import { inviteStudentToOrg } from './inviteStudentToOrg'
+import { removeStudentFromOrg } from './removeStudentFromOrg'
 import { resendInvitation } from './resendInvitation'
+import { resendTeamInvitation } from './resendTeamInvitation'
 import { revokeStudentAccess } from './revokeStudentAccess'
 import { getBoss, QUEUES } from './queue'
 
@@ -137,6 +140,43 @@ export async function startWorker(): Promise<void> {
     async (jobs) => {
       for (const job of jobs) {
         await resendInvitation(job.data)
+      }
+    },
+  )
+
+  await boss.work<{ teamMemberId: string }>(
+    QUEUES.resendTeamInvitation,
+    { batchSize: 1, localConcurrency: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        await resendTeamInvitation(job.data)
+      }
+    },
+  )
+
+  await boss.work<{ classroomMemberId: string; resend?: boolean }>(
+    QUEUES.inviteStudentToOrg,
+    // One at a time: the first invitation for a classroom creates its student
+    // team, and two jobs racing would both try to.
+    { batchSize: 1, localConcurrency: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        await inviteStudentToOrg(job.data)
+      }
+    },
+  )
+
+  await boss.work<{
+    classroomId: string
+    userId: string
+    mode: 'CONVERT' | 'REMOVE'
+    joinedViaClassroom?: boolean
+  }>(
+    QUEUES.removeStudentFromOrg,
+    { batchSize: 1, localConcurrency: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        await removeStudentFromOrg(job.data)
       }
     },
   )

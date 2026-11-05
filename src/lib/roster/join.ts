@@ -2,6 +2,7 @@ import 'server-only'
 
 import { ClassroomRole } from '@prisma/client'
 
+import { enqueue, QUEUES } from '@/jobs/queue'
 import { db } from '@/lib/db'
 
 /**
@@ -27,6 +28,7 @@ export type InviteClassroom = {
   term: string | null
   githubOrgLogin: string
   archivedAt: Date | null
+  studentOrgAccess: boolean
 }
 
 export async function resolveInviteToken(token: string): Promise<InviteResolution> {
@@ -47,6 +49,7 @@ export async function resolveInviteToken(token: string): Promise<InviteResolutio
           term: true,
           githubOrgLogin: true,
           archivedAt: true,
+          studentOrgAccess: true,
         },
       },
     },
@@ -205,7 +208,7 @@ export async function claimRosterEntry(
   }
   if (existingClaim) {
     // Idempotent: re-submitting the same claim is success, not an error.
-    await ensureMembership(classroom.id, userId)
+    await inviteToOrganization(classroom, await ensureMembership(classroom.id, userId))
     return { ok: true, classroomSlug: classroom.slug }
   }
 
@@ -236,7 +239,7 @@ export async function claimRosterEntry(
     }
   }
 
-  await ensureMembership(classroom.id, userId)
+  await inviteToOrganization(classroom, await ensureMembership(classroom.id, userId))
 
   await db.$transaction([
     db.inviteLink.updateMany({
@@ -258,12 +261,34 @@ export async function claimRosterEntry(
   return { ok: true, classroomSlug: classroom.slug }
 }
 
-async function ensureMembership(classroomId: string, userId: string): Promise<void> {
-  await db.classroomMember.upsert({
+async function ensureMembership(
+  classroomId: string,
+  userId: string,
+): Promise<{ id: string; role: ClassroomRole }> {
+  return db.classroomMember.upsert({
     where: { classroomId_userId: { classroomId, userId } },
     update: {},
     // Never downgrade an existing role: an instructor who claims a roster entry
     // for testing must not become a student in their own classroom.
     create: { classroomId, userId, role: ClassroomRole.STUDENT },
+    select: { id: true, role: true },
   })
+}
+
+/**
+ * Where the classroom makes students organization members, the invitation goes out
+ * now — one email, at the moment the student is already dealing with the classroom,
+ * rather than one per assignment later. Queued, since it is organization writes;
+ * the job is idempotent, so a student who claims twice is invited once.
+ */
+async function inviteToOrganization(
+  classroom: { id: string; studentOrgAccess: boolean },
+  member: { id: string; role: ClassroomRole },
+): Promise<void> {
+  if (!classroom.studentOrgAccess || member.role !== ClassroomRole.STUDENT) return
+  await enqueue(
+    QUEUES.inviteStudentToOrg,
+    { classroomMemberId: member.id },
+    { singletonKey: `org-invite:${member.id}` },
+  )
 }

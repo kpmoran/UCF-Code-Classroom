@@ -5,28 +5,40 @@ import { SiteHeader } from '@/components/site-header'
 import { ButtonLink } from '@/components/ui/button'
 import { requireEnrolledStaff } from '@/lib/auth/dal'
 import { db } from '@/lib/db'
+import { effectiveOrgState } from '@/lib/students/orgRules'
 
 export default async function PeoplePage(props: PageProps<'/classrooms/[slug]/people'>) {
   const { slug } = await props.params
   const { classroom, role, user } = await requireEnrolledStaff(slug)
 
-  const members = await db.classroomMember.findMany({
-    where: { classroomId: classroom.id },
-    orderBy: [{ role: 'asc' }, { joinedAt: 'asc' }],
-    select: {
-      role: true,
-      joinedAt: true,
-      user: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          githubLogin: true,
-          claimedRosterEntry: { select: { displayName: true, classroomId: true } },
+  const [members, { studentOrgAccess }] = await Promise.all([
+    db.classroomMember.findMany({
+      where: { classroomId: classroom.id },
+      orderBy: [{ role: 'asc' }, { joinedAt: 'asc' }],
+      select: {
+        id: true,
+        role: true,
+        joinedAt: true,
+        orgState: true,
+        orgInvitedAt: true,
+        orgFailure: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            githubLogin: true,
+            claimedRosterEntry: { select: { displayName: true, classroomId: true } },
+          },
         },
       },
-    },
-  })
+    }),
+    db.classroom.findUniqueOrThrow({
+      where: { id: classroom.id },
+      select: { studentOrgAccess: true },
+    }),
+  ])
+  const now = new Date()
 
   // Repository counts per member, so a removal can state what it affects.
   const userIds = members.map((m) => m.user.id)
@@ -88,9 +100,13 @@ export default async function PeoplePage(props: PageProps<'/classrooms/[slug]/pe
           canManage={role === 'INSTRUCTOR'}
           currentUserId={user.id}
           instructorCount={instructorCount}
+          showOrg={studentOrgAccess}
           members={members.map((m) => ({
+            memberId: m.id,
             userId: m.user.id,
             role: m.role,
+            orgState: effectiveOrgState(m.orgState, m.orgInvitedAt, now),
+            orgFailure: m.orgFailure,
             name:
               m.user.claimedRosterEntry?.classroomId === classroom.id
                 ? m.user.claimedRosterEntry.displayName

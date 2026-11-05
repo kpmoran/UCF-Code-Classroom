@@ -45,26 +45,69 @@ export async function recheckInvitations(
 
 /**
  * Send fresh invitations to students who have not accepted theirs — every such
- * student on the assignment, or one when `assignmentRepoId` is given.
+ * student on the assignment, or one when `assignmentRepoId` (individual) or
+ * `teamMemberId` (group) is given.
  *
  * GitHub expires an invitation after seven days and never re-sends it, so a student
  * who missed or lost the email has no way back in on their own. Queued rather than
  * done here because each resend is two content-creating writes, which a whole class
  * would push past the rate budget partway through a request.
+ *
+ * On a group assignment the invitation is the organization's, carried by the team;
+ * the job cancels it and re-adds the student to the team, which sends a new one.
  */
 export async function resendInvitations(
   formData: FormData,
 ): Promise<InvitationActionResult<{ resent: number }>> {
   const assignmentId = String(formData.get('assignmentId') ?? '')
   const assignmentRepoId = String(formData.get('assignmentRepoId') ?? '') || null
+  const teamMemberId = String(formData.get('teamMemberId') ?? '') || null
 
   const assignment = await db.assignment.findUnique({
     where: { id: assignmentId },
-    select: { id: true, classroomId: true, classroom: { select: { slug: true } } },
+    select: { id: true, type: true, classroomId: true, classroom: { select: { slug: true } } },
   })
   if (!assignment) return { ok: false, error: 'That assignment no longer exists.' }
 
   const { user } = await requireInstructor(assignment.classroomId)
+
+  if (assignment.type === 'GROUP') {
+    const members = await db.teamMember.findMany({
+      where: {
+        githubMembershipState: 'pending',
+        team: { assignmentId, githubTeamSlug: { not: null } },
+        user: { githubLogin: { not: null } },
+        ...(teamMemberId ? { id: teamMemberId } : {}),
+      },
+      select: { id: true, user: { select: { githubLogin: true } }, team: { select: { name: true } } },
+    })
+
+    if (members.length === 0) return { ok: true, data: { resent: 0 } }
+
+    await enqueueMany(
+      QUEUES.resendTeamInvitation,
+      members.map((m) => ({ data: { teamMemberId: m.id }, singletonKey: `resend-team:${m.id}` })),
+    )
+
+    await db.auditLog.create({
+      data: {
+        classroomId: assignment.classroomId,
+        actorUserId: user.id,
+        action: 'assignment.resend_invitations',
+        targetType: 'assignment',
+        targetId: assignmentId,
+        detail: {
+          resent: members.length,
+          ...(teamMemberId
+            ? { githubLogin: members[0].user.githubLogin, team: members[0].team.name }
+            : {}),
+        },
+      },
+    })
+
+    revalidatePath(`/classrooms/${assignment.classroom.slug}/assignments/${assignmentId}`)
+    return { ok: true, data: { resent: members.length } }
+  }
 
   const rows = await db.assignmentRepo.findMany({
     where: {
@@ -106,15 +149,16 @@ export async function resendInvitations(
 const OWN_RESEND_COOLDOWN_MS = 15 * 60 * 1000
 
 /**
- * Student: send yourself a fresh invitation to your own repository.
+ * Student: send yourself a fresh invitation — to your own repository on an
+ * individual assignment, to your team on a group one.
  *
  * For the student whose invitation expired or whose email went astray, so they can
  * get back in without waiting on the instructor. Only ever their own row — it is
  * looked up by the signed-in user, never by an id from the form.
  *
- * Rate-limited per repository, because each resend spends content budget the whole
- * classroom shares, and a student clicking repeatedly while the email is still on its
- * way would otherwise slow repository creation for everyone else.
+ * Rate-limited per repository or team, because each resend spends content budget
+ * the whole classroom shares, and a student clicking repeatedly while the email is
+ * still on its way would otherwise slow repository creation for everyone else.
  */
 export async function resendMyInvitation(
   formData: FormData,
@@ -126,6 +170,7 @@ export async function resendMyInvitation(
     where: { id: assignmentId },
     select: {
       id: true,
+      type: true,
       classroomId: true,
       classroom: { select: { slug: true, archivedAt: true } },
     },
@@ -138,6 +183,47 @@ export async function resendMyInvitation(
     return { ok: false, error: 'This classroom is archived.' }
   }
 
+  const path = `/classrooms/${assignment.classroom.slug}/assignments/${assignmentId}`
+
+  if (assignment.type === 'GROUP') {
+    const membership = await db.teamMember.findFirst({
+      where: { userId: user.id, team: { assignmentId } },
+      select: {
+        id: true,
+        githubMembershipState: true,
+        team: { select: { name: true, githubTeamSlug: true } },
+      },
+    })
+    if (
+      !membership ||
+      membership.githubMembershipState !== 'pending' ||
+      !membership.team.githubTeamSlug
+    ) {
+      return { ok: true, data: { resent: 0 } }
+    }
+
+    const tooSoon = await ownResendCooldown('teamMember', membership.id)
+    if (tooSoon) return { ok: false, error: tooSoon }
+
+    await enqueueMany(QUEUES.resendTeamInvitation, [
+      { data: { teamMemberId: membership.id }, singletonKey: `resend-team:${membership.id}` },
+    ])
+
+    await db.auditLog.create({
+      data: {
+        classroomId: assignment.classroomId,
+        actorUserId: user.id,
+        action: 'assignment.resend_own_invitation',
+        targetType: 'teamMember',
+        targetId: membership.id,
+        detail: { team: membership.team.name },
+      },
+    })
+
+    revalidatePath(path)
+    return { ok: true, data: { resent: 1 } }
+  }
+
   const repo = await db.assignmentRepo.findUnique({
     where: { assignmentId_userId: { assignmentId, userId: user.id } },
     select: { id: true, status: true, invitationId: true, fullName: true },
@@ -146,26 +232,8 @@ export async function resendMyInvitation(
     return { ok: true, data: { resent: 0 } }
   }
 
-  const recent = await db.auditLog.findFirst({
-    where: {
-      action: 'assignment.resend_own_invitation',
-      targetType: 'assignmentRepo',
-      targetId: repo.id,
-      createdAt: { gt: new Date(Date.now() - OWN_RESEND_COOLDOWN_MS) },
-    },
-    select: { createdAt: true },
-  })
-  if (recent) {
-    const minutes = Math.ceil(
-      (recent.createdAt.getTime() + OWN_RESEND_COOLDOWN_MS - Date.now()) / 60_000,
-    )
-    return {
-      ok: false,
-      error:
-        'A new invitation was sent recently — check your email, including spam, and your ' +
-        `GitHub notifications. You can request another in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
-    }
-  }
+  const tooSoon = await ownResendCooldown('assignmentRepo', repo.id)
+  if (tooSoon) return { ok: false, error: tooSoon }
 
   await enqueueMany(QUEUES.resendInvitation, [
     { data: { assignmentRepoId: repo.id }, singletonKey: `resend:${repo.id}` },
@@ -182,6 +250,32 @@ export async function resendMyInvitation(
     },
   })
 
-  revalidatePath(`/classrooms/${assignment.classroom.slug}/assignments/${assignmentId}`)
+  revalidatePath(path)
   return { ok: true, data: { resent: 1 } }
+}
+
+/**
+ * The message to show when the student resent this invitation too recently, or
+ * null when they may. The audit log is the record of resends, so it is also the
+ * clock.
+ */
+async function ownResendCooldown(targetType: string, targetId: string): Promise<string | null> {
+  const recent = await db.auditLog.findFirst({
+    where: {
+      action: 'assignment.resend_own_invitation',
+      targetType,
+      targetId,
+      createdAt: { gt: new Date(Date.now() - OWN_RESEND_COOLDOWN_MS) },
+    },
+    select: { createdAt: true },
+  })
+  if (!recent) return null
+
+  const minutes = Math.ceil(
+    (recent.createdAt.getTime() + OWN_RESEND_COOLDOWN_MS - Date.now()) / 60_000,
+  )
+  return (
+    'A new invitation was sent recently — check your email, including spam, and your ' +
+    `GitHub notifications. You can request another in ${minutes} minute${minutes === 1 ? '' : 's'}.`
+  )
 }

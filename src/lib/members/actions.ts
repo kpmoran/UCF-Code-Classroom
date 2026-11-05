@@ -189,6 +189,8 @@ export async function removeClassroomMember(
     select: {
       id: true,
       role: true,
+      orgState: true,
+      orgJoinedViaClassroom: true,
       user: { select: { id: true, name: true, githubLogin: true } },
     },
   })
@@ -248,6 +250,23 @@ export async function removeClassroomMember(
     { classroomId, userId: targetUserId, repoAction },
     { singletonKey: `revoke:${classroomId}:${targetUserId}` },
   )
+
+  /*
+   * A student this classroom made an organization member leaves the organization
+   * with it. Their repository access is being revoked above regardless, so there is
+   * nothing to keep by converting. The job still refuses if another classroom needs
+   * them; the membership row is gone by then, hence the flag in the payload.
+   */
+  if (
+    membership.orgJoinedViaClassroom &&
+    ['pending', 'active', 'expired'].includes(membership.orgState ?? '')
+  ) {
+    await enqueue(
+      QUEUES.removeStudentFromOrg,
+      { classroomId, userId: targetUserId, mode: 'REMOVE', joinedViaClassroom: true },
+      { singletonKey: `org-remove:${classroomId}:${targetUserId}` },
+    )
+  }
 
   revalidatePath(`/classrooms/${classroom.slug}/people`)
   revalidatePath(`/classrooms/${classroom.slug}/roster`)

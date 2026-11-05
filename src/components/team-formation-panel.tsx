@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { SubmissionSummary } from '@/lib/deadlines/summary'
 import { FieldHint, Input, Label } from '@/components/ui/input'
+import { resendMyInvitation } from '@/lib/invitations/actions'
 import { createStudentTeam, joinTeam, leaveTeam } from '@/lib/teams/actions'
 
 export type TeamMemberView = {
@@ -63,6 +64,8 @@ export function TeamFormationPanel({
   const router = useRouter()
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [resendMessage, setResendMessage] = useState<string | null>(null)
+  const [resendError, setResendError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
   const yourTeam = teams.find((t) => t.id === yourTeamId) ?? null
@@ -87,6 +90,26 @@ export function TeamFormationPanel({
         setName('')
         router.refresh()
       }
+    })
+  }
+
+  function onResend() {
+    setResendMessage(null)
+    setResendError(null)
+    startTransition(async () => {
+      const fd = new FormData()
+      fd.set('assignmentId', assignmentId)
+      const result = await resendMyInvitation(fd)
+      if (!result.ok) {
+        setResendError(result.error)
+        return
+      }
+      setResendMessage(
+        result.data.resent === 0
+          ? 'You already have access — no invitation needed.'
+          : 'A new invitation is on its way. GitHub will email it within a few minutes.',
+      )
+      router.refresh()
     })
   }
 
@@ -166,8 +189,28 @@ export function TeamFormationPanel({
                       GitHub emailed you an invitation to the{' '}
                       <span className="font-mono">{yourTeam.name}</span> team. You will not be
                       able to push until you accept it — check your email, or your GitHub
-                      notifications.
+                      notifications. Invitations expire after seven days; if yours has, or you
+                      cannot find it, ask for a new one.
                     </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      disabled={pending}
+                      onClick={onResend}
+                    >
+                      {pending ? 'Sending…' : 'Send me a new invitation'}
+                    </Button>
+                    {resendMessage ? (
+                      <p role="status" className="mt-2 text-xs">
+                        {resendMessage}
+                      </p>
+                    ) : null}
+                    {resendError ? (
+                      <p role="alert" className="mt-2 text-xs text-danger">
+                        {resendError}
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
 

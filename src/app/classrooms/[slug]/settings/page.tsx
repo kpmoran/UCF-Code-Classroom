@@ -4,6 +4,8 @@ import { Suspense } from 'react'
 import { AddStudentForm } from '@/components/add-student-form'
 import { ArchiveForm } from '@/components/archive-classroom-form'
 import {
+  OrgAccessCheckPanel,
+  OrgAccessCheckSkeleton,
   OrgOwnershipPanel,
   OrgOwnershipSkeleton,
 } from '@/components/classroom-org-panel'
@@ -11,10 +13,12 @@ import { ClassroomOwnerPanel } from '@/components/classroom-owner-panel'
 import { ClassroomSettingsForm } from '@/components/classroom-settings-form'
 import { InviteLinkPanel } from '@/components/invite-link-panel'
 import { SiteHeader } from '@/components/site-header'
+import { StudentOrgPanel, type OrgStateCounts } from '@/components/student-org-panel'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { requireInstructor } from '@/lib/auth/dal'
 import { db } from '@/lib/db'
 import { env } from '@/lib/env'
+import { effectiveOrgState } from '@/lib/students/orgRules'
 
 export default async function ClassroomSettingsPage(
   props: PageProps<'/classrooms/[slug]/settings'>,
@@ -22,7 +26,7 @@ export default async function ClassroomSettingsPage(
   const { slug } = await props.params
   const { classroom, user } = await requireInstructor(slug)
 
-  const [full, inviteLink] = await Promise.all([
+  const [full, inviteLink, students] = await Promise.all([
     db.classroom.findUniqueOrThrow({
       where: { id: classroom.id },
       select: {
@@ -36,6 +40,7 @@ export default async function ClassroomSettingsPage(
         archivedAt: true,
         githubOrgLogin: true,
         installationId: true,
+        studentOrgAccess: true,
       },
     }),
     db.inviteLink.findFirst({
@@ -43,7 +48,26 @@ export default async function ClassroomSettingsPage(
       orderBy: { createdAt: 'desc' },
       select: { token: true, useCount: true, expiresAt: true, maxUses: true },
     }),
+    db.classroomMember.findMany({
+      where: { classroomId: classroom.id, role: 'STUDENT' },
+      select: { orgState: true, orgInvitedAt: true },
+    }),
   ])
+
+  // Where the class stands with the organization, allowing for invitations that
+  // have run out since they were sent.
+  const now = new Date()
+  const orgCounts: OrgStateCounts = {
+    notInvited: 0,
+    pending: 0,
+    expired: 0,
+    failed: 0,
+    active: 0,
+    removed: 0,
+  }
+  for (const s of students) {
+    orgCounts[effectiveOrgState(s.orgState, s.orgInvitedAt, now) ?? 'notInvited'] += 1
+  }
 
   const joinUrl = inviteLink
     ? `${env.APP_URL.replace(/\/$/, '')}/join/${inviteLink.token}`
@@ -88,6 +112,32 @@ export default async function ClassroomSettingsPage(
           slug={full.slug}
           orgLogin={full.githubOrgLogin}
         />
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Students in the organization</CardTitle>
+            <CardDescription>
+              Members of the organization get each assignment repository directly, with no
+              per-repository invitation to accept — or to miss. One invitation, when they join,
+              instead of one per assignment.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <Suspense fallback={<OrgAccessCheckSkeleton />}>
+              <OrgAccessCheckPanel
+                installationId={full.installationId}
+                orgLogin={full.githubOrgLogin}
+              />
+            </Suspense>
+            <StudentOrgPanel
+              classroomId={full.id}
+              slug={full.slug}
+              enabled={full.studentOrgAccess}
+              archived={full.archivedAt !== null}
+              counts={orgCounts}
+            />
+          </CardContent>
+        </Card>
 
         <ClassroomSettingsForm
           classroom={{

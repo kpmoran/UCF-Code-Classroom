@@ -213,6 +213,7 @@ async function StaffView({
             // the by-student view, so a search for a student finds their team.
             members: {
               select: {
+                id: true,
                 userId: true,
                 githubMembershipState: true,
                 user: { select: { name: true, githubLogin: true } },
@@ -338,6 +339,7 @@ async function StaffView({
         teamName: r.team?.name ?? null,
         githubLogin: r.user?.githubLogin ?? null,
         members: (r.team?.members ?? []).map((m) => ({
+          teamMemberId: m.id,
           userId: m.userId,
           name: rosterNames.get(m.userId) ?? m.user.name ?? m.user.githubLogin ?? 'Unknown',
           githubLogin: m.user.githubLogin,

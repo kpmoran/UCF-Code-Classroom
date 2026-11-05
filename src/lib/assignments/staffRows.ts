@@ -14,6 +14,8 @@ export type RowMember = {
   githubLogin: string | null
   /** GitHub's membership state, 'pending' until the invitation is accepted. */
   membershipState: string | null
+  /** The membership row, for resending its invitation. Absent only in fixtures. */
+  teamMemberId?: string
 }
 
 /** The least a row needs for these helpers; the table's full row type extends it. */

@@ -94,6 +94,40 @@ describe('describeAuditAction', () => {
     )
   })
 
+  it('describes a team invitation resend by student and team', () => {
+    expect(
+      describeAuditAction('assignment.resend_invitations', {
+        resent: 1,
+        githubLogin: 'avak',
+        team: 'Knights',
+      }),
+    ).toBe('Resent @avak’s invitation to team “Knights”')
+    expect(describeAuditAction('assignment.resend_own_invitation', { team: 'Knights' })).toBe(
+      'Requested a new GitHub invitation to team “Knights”',
+    )
+  })
+
+  it('describes organization membership changes with their counts', () => {
+    expect(describeAuditAction('classroom.student_org_access', { enabled: true, queued: 12 })).toBe(
+      'Turned on organization membership for students, inviting 12',
+    )
+    expect(describeAuditAction('classroom.student_org_access', { enabled: false })).toBe(
+      'Turned off organization membership for students',
+    )
+    expect(describeAuditAction('classroom.invite_students_to_org', { queued: 1 })).toBe(
+      'Invited 1 student to the organization',
+    )
+    expect(
+      describeAuditAction('classroom.invite_students_to_org', { queued: 1, githubLogin: 'avak' }),
+    ).toBe('Sent @avak a new organization invitation')
+    expect(
+      describeAuditAction('classroom.remove_students_from_org', { queued: 40, mode: 'CONVERT' }),
+    ).toBe('Converted 40 students to outside collaborators, keeping their repository access')
+    expect(
+      describeAuditAction('classroom.remove_students_from_org', { queued: 40, mode: 'REMOVE' }),
+    ).toBe('Removed 40 students from the organization')
+  })
+
   it('never returns an empty description for an unknown action', () => {
     // A new action added later must still render a readable row.
     expect(describeAuditAction('some.future.action', null)).toBe('some.future.action')
@@ -120,6 +154,13 @@ describe('isDestructiveAction', () => {
     expect(isDestructiveAction('member.remove', { repoAction: 'KEEP' })).toBe(true)
     expect(isDestructiveAction('roster.unlink', null)).toBe(true)
     expect(isDestructiveAction('github.access_revoked', null)).toBe(true)
+  })
+
+  it('flags removal from the organization, but not conversion', () => {
+    expect(isDestructiveAction('classroom.remove_students_from_org', { mode: 'REMOVE' })).toBe(true)
+    expect(isDestructiveAction('classroom.remove_students_from_org', { mode: 'CONVERT' })).toBe(
+      false,
+    )
   })
 
   it('flags anything that deleted repositories, whatever the action', () => {

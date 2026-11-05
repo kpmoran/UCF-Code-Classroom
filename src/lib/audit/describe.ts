@@ -37,6 +37,29 @@ export function describeAuditAction(action: string, detail: AuditDetail): string
       return 'Restored the classroom'
     case 'classroom.invite_link.regenerate':
       return 'Generated a new invite link, revoking the previous one'
+    case 'classroom.student_org_access': {
+      const queued = num(detail, 'queued') ?? 0
+      return detail?.enabled === true
+        ? `Turned on organization membership for students${
+            queued > 0 ? `, inviting ${queued}` : ''
+          }`
+        : 'Turned off organization membership for students'
+    }
+    case 'classroom.invite_students_to_org': {
+      const login = str(detail, 'githubLogin')
+      if (login) return `Sent @${login} a new organization invitation`
+      const queued = num(detail, 'queued') ?? 0
+      return `Invited ${queued} student${queued === 1 ? '' : 's'} to the organization`
+    }
+    case 'classroom.resend_own_org_invitation':
+      return `Requested a new invitation to ${str(detail, 'org') ?? 'the organization'}`
+    case 'classroom.remove_students_from_org': {
+      const queued = num(detail, 'queued') ?? 0
+      const students = `${queued} student${queued === 1 ? '' : 's'}`
+      return str(detail, 'mode') === 'CONVERT'
+        ? `Converted ${students} to outside collaborators, keeping their repository access`
+        : `Removed ${students} from the organization`
+    }
 
     case 'roster.import': {
       const added = num(detail, 'added') ?? 0
@@ -78,11 +101,18 @@ export function describeAuditAction(action: string, detail: AuditDetail): string
     case 'assignment.resend_invitations': {
       const repo = str(detail, 'repo')
       if (repo) return `Resent the GitHub invitation for ${repo}`
+      const login = str(detail, 'githubLogin')
+      if (login) {
+        return `Resent @${login}’s invitation to team “${str(detail, 'team') ?? 'unnamed'}”`
+      }
       const resent = num(detail, 'resent') ?? 0
       return `Resent ${resent} unaccepted GitHub invitation${resent === 1 ? '' : 's'}`
     }
-    case 'assignment.resend_own_invitation':
+    case 'assignment.resend_own_invitation': {
+      const team = str(detail, 'team')
+      if (team) return `Requested a new GitHub invitation to team “${team}”`
       return `Requested a new GitHub invitation for ${str(detail, 'repo') ?? 'their repository'}`
+    }
     case 'assignment.remove_student': {
       const repo = str(detail, 'repo')
       const what = REPO_ACTION_TEXT[str(detail, 'repoAction') ?? ''] ?? 'access revoked'
@@ -146,6 +176,8 @@ export function describeAuditAction(action: string, detail: AuditDetail): string
 /** Whether an entry represents something destructive, for visual emphasis. */
 export function isDestructiveAction(action: string, detail: AuditDetail): boolean {
   if (str(detail, 'repoAction') === 'DELETE') return true
+  // Converting to outside collaborator keeps their work reachable; removal does not.
+  if (action === 'classroom.remove_students_from_org') return str(detail, 'mode') === 'REMOVE'
 
   return [
     'classroom.archive',

@@ -6,19 +6,22 @@ import { ButtonLink } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/table'
 import { InviteLinkBar } from '@/components/invite-link-panel'
+import { OrgInvitationNotice } from '@/components/org-invitation-notice'
 import { requireClassroomRole } from '@/lib/auth/dal'
 import { ROLE_LABEL, roleSatisfies } from '@/lib/auth/roles'
 import { db } from '@/lib/db'
 import { env } from '@/lib/env'
+import { reconcileOrgMemberships } from '@/lib/students/orgAccess'
+import { effectiveOrgState } from '@/lib/students/orgRules'
 
 export default async function ClassroomPage(props: PageProps<'/classrooms/[slug]'>) {
   const { slug } = await props.params
   const search = await props.searchParams
-  const { classroom, role } = await requireClassroomRole(slug)
+  const { classroom, role, user } = await requireClassroomRole(slug)
 
   const isStaff = roleSatisfies(role, 'TA')
 
-  const [assignments, rosterCount, claimedCount, memberCount, inviteLink] = await Promise.all([
+  const [assignments, rosterCount, claimedCount, memberCount, inviteLink, orgNotice] = await Promise.all([
     db.assignment.findMany({
       where: {
         classroomId: classroom.id,
@@ -49,6 +52,7 @@ export default async function ClassroomPage(props: PageProps<'/classrooms/[slug]
           select: { token: true, useCount: true },
         })
       : null,
+    isStaff ? null : studentOrgNotice(classroom.id, user.id),
   ])
 
   const joinUrl = inviteLink
@@ -143,6 +147,14 @@ export default async function ClassroomPage(props: PageProps<'/classrooms/[slug]
               People settings if team invitations fail.
             </p>
           </div>
+        ) : null}
+
+        {orgNotice && !classroom.archivedAt ? (
+          <OrgInvitationNotice
+            classroomId={classroom.id}
+            orgLogin={classroom.githubOrgLogin}
+            state={orgNotice}
+          />
         ) : null}
 
         {classroom.archivedAt ? (
@@ -246,4 +258,37 @@ export default async function ClassroomPage(props: PageProps<'/classrooms/[slug]
       </main>
     </>
   )
+}
+
+/**
+ * Whether a student's organization invitation still needs their attention.
+ *
+ * Asks GitHub once about a pending invitation, because acceptance tells this app
+ * nothing: a student who accepted an hour ago should not still be told to. Only
+ * their own row, and only while it is pending, so the read stops once it clears.
+ */
+async function studentOrgNotice(
+  classroomId: string,
+  userId: string,
+): Promise<'pending' | 'expired' | null> {
+  const [settings, member] = await Promise.all([
+    db.classroom.findUniqueOrThrow({
+      where: { id: classroomId },
+      select: { studentOrgAccess: true },
+    }),
+    db.classroomMember.findUnique({
+      where: { classroomId_userId: { classroomId, userId } },
+      select: { id: true, role: true, orgState: true, orgInvitedAt: true },
+    }),
+  ])
+  if (!settings.studentOrgAccess || member?.role !== 'STUDENT') return null
+
+  const state = effectiveOrgState(member.orgState, member.orgInvitedAt, new Date())
+  if (state === 'pending') {
+    const { activated } = await reconcileOrgMemberships(classroomId, {
+      classroomMemberId: member.id,
+    })
+    return activated > 0 ? null : 'pending'
+  }
+  return state === 'expired' ? 'expired' : null
 }

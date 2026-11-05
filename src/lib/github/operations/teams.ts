@@ -30,7 +30,7 @@ export { slugifyTeamName }
  * Only authorization failures fall through. A 404 or 422 is a real problem with
  * the request and retrying with another credential would just obscure it.
  */
-async function teamMutate<T>(
+export async function teamMutate<T>(
   context: string,
   classroomId: string,
   installationId: bigint,

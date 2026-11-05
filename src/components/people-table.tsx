@@ -10,10 +10,16 @@ import { Select } from '@/components/ui/input'
 import { EmptyState, Table, TableWrap, Td, Th } from '@/components/ui/table'
 import { ROLE_LABEL } from '@/lib/auth/roles'
 import { removeClassroomMember, setMemberRole } from '@/lib/members/actions'
+import { inviteStudentsToOrg } from '@/lib/students/actions'
+import type { OrgState } from '@/lib/students/orgRules'
 
 type MemberRow = {
+  memberId: string
   userId: string
   role: 'INSTRUCTOR' | 'TA' | 'STUDENT'
+  /** Where they stand with the organization; null for a student never invited. */
+  orgState: OrgState | null
+  orgFailure: string | null
   name: string
   githubLogin: string | null
   email: string | null
@@ -28,16 +34,20 @@ export function PeopleTable({
   classroomId,
   canManage,
   instructorCount,
+  showOrg,
   members,
 }: {
   classroomId: string
   canManage: boolean
   currentUserId: string
   instructorCount: number
+  /** Whether the classroom makes students organization members, so the column means something. */
+  showOrg: boolean
   members: MemberRow[]
 }) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
   const [removing, setRemoving] = useState<MemberRow | null>(null)
@@ -54,6 +64,26 @@ export function PeopleTable({
       const result = await setMemberRole(fd)
       if (!result.ok) setError(result.error)
       else router.refresh()
+    })
+  }
+
+  function inviteToOrg(member: MemberRow) {
+    setError(null)
+    setMessage(null)
+    startTransition(async () => {
+      const fd = new FormData()
+      fd.set('classroomId', classroomId)
+      fd.set('classroomMemberId', member.memberId)
+      const result = await inviteStudentsToOrg(fd)
+      if (!result.ok) setError(result.error)
+      else {
+        setMessage(
+          result.data.queued === 0
+            ? `${member.name} does not need an invitation.`
+            : `Inviting ${member.name}. GitHub will email them within a few minutes.`,
+        )
+        router.refresh()
+      }
     })
   }
 
@@ -87,6 +117,11 @@ export function PeopleTable({
           {error}
         </p>
       ) : null}
+      {message ? (
+        <p role="status" className="text-sm rounded-md bg-success-subtle text-success px-3 py-2">
+          {message}
+        </p>
+      ) : null}
 
       {members.length === 0 ? (
         <div className="rounded-lg border border-border">
@@ -103,6 +138,7 @@ export function PeopleTable({
                 <Th>Name</Th>
                 <Th>GitHub</Th>
                 <Th>Role</Th>
+                {showOrg ? <Th>Organization</Th> : null}
                 <Th>Repos</Th>
                 {canManage ? <Th className="text-right">Actions</Th> : null}
               </tr>
@@ -160,6 +196,15 @@ export function PeopleTable({
                         </span>
                       ) : null}
                     </Td>
+                    {showOrg ? (
+                      <Td>
+                        <OrgCell
+                          member={m}
+                          canInvite={canManage && !pending}
+                          onInvite={() => inviteToOrg(m)}
+                        />
+                      </Td>
+                    ) : null}
                     <Td className="text-sm text-muted">{m.repoCount}</Td>
                     {canManage ? (
                       <Td className="text-right">
@@ -265,5 +310,64 @@ export function PeopleTable({
         </fieldset>
       </ConfirmDialog>
     </section>
+  )
+}
+
+/**
+ * A student's standing with the organization, and the way to put it right.
+ *
+ * "Invited" is the normal waiting state; "expired" is the one that needs a hand,
+ * since GitHub never re-sends an invitation. Staff are shown nothing: their
+ * membership is not this classroom's to manage.
+ */
+function OrgCell({
+  member: m,
+  canInvite,
+  onInvite,
+}: {
+  member: MemberRow
+  canInvite: boolean
+  onInvite: () => void
+}) {
+  if (m.role !== 'STUDENT') return <span className="text-xs text-muted">—</span>
+
+  const badge =
+    m.orgState === 'active' ? (
+      <Badge tone="success">member</Badge>
+    ) : m.orgState === 'pending' ? (
+      <Badge tone="info">invited</Badge>
+    ) : m.orgState === 'expired' ? (
+      <Badge tone="warning">invite expired</Badge>
+    ) : m.orgState === 'failed' ? (
+      <Badge tone="danger">failed</Badge>
+    ) : m.orgState === 'removed' ? (
+      <Badge tone="neutral">removed</Badge>
+    ) : (
+      <Badge tone="neutral">not invited</Badge>
+    )
+
+  const action =
+    m.orgState === 'active' || m.orgState === 'removed'
+      ? null
+      : m.orgState === null || m.orgState === 'failed'
+        ? 'Invite'
+        : 'Resend'
+
+  return (
+    <div className="flex flex-col gap-1 items-start">
+      {badge}
+      {canInvite && action && m.githubLogin ? (
+        <button
+          type="button"
+          className="text-xs text-accent hover:underline disabled:opacity-50"
+          onClick={onInvite}
+        >
+          {action} invitation
+        </button>
+      ) : null}
+      {m.orgFailure ? (
+        <span className="text-xs text-danger max-w-xs">{m.orgFailure}</span>
+      ) : null}
+    </div>
   )
 }
