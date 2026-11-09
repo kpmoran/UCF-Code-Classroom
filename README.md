@@ -1301,6 +1301,25 @@ These are not on every push, for three reasons worth knowing before you change i
 - They use fixed repository and team names in one shared organization, so
   concurrent runs would collide on the resources themselves.
 
+### What the organization-membership suite does and does not touch
+
+`src/jobs/studentOrgAccess.integration.test.ts` covers the jobs behind "Students in the
+organization" — the invitation gate, the student team, reconciliation, end-of-term
+removal, and the group-assignment resend. It is written around two facts about the
+sandbox that are worth knowing before you change either:
+
+- **It never invites anyone to the organization, and never removes anyone from it.**
+  `VERIFY_USER` is a member every other suite depends on, so the removal job is run
+  only on its refusal paths, each of which must leave that account exactly as it was.
+  The one real pending invitation it creates is addressed to an email with no account
+  behind it, and is cancelled again by the same test (and by cleanup, if the test dies).
+- **It does not change the sandbox's base repository permission.** The invite job
+  refuses on anything above "No permission", and the sandbox is set to "read", so the
+  refusal path runs against GitHub's real answer and the happy path is reached by
+  stubbing that single read — after a separate test has proved the real read works.
+  A production organization has to have that setting at "No permission" before the
+  feature does anything; the classroom settings page shows the check live.
+
 ### Keeping the test emails out of your inbox
 
 The GitHub-touching suites need a real account to stand in for a student: they invite it
