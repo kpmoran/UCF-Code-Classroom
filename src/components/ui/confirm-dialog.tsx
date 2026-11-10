@@ -16,6 +16,12 @@ import { Input, Label } from '@/components/ui/input'
  * exactly. That is reserved for genuinely irreversible operations — deleting a
  * GitHub repository — because applying it to everything trains people to copy
  * strings without reading them, which defeats the point.
+ *
+ * The `<dialog>` element stays mounted so `showModal()` has something to open,
+ * but its contents render only while it is open. A closed dialog is hidden from
+ * sighted users and screen readers alike, yet its inputs would still be in the
+ * DOM, where a page-level query for "the confirmation field" would find them
+ * alongside a form that is actually on screen.
  */
 export function ConfirmDialog({
   open,
@@ -77,51 +83,55 @@ export function ConfirmDialog({
       className="backdrop:bg-black/50 rounded-lg border border-border bg-surface p-0 max-w-md w-[calc(100%-2rem)] text-foreground"
       aria-labelledby={`${inputId}-title`}
     >
-      <div className="px-5 py-4 border-b border-border">
-        <h2 id={`${inputId}-title`} className="text-base font-semibold">
-          {title}
-        </h2>
-      </div>
-
-      <div className="px-5 py-4 space-y-3 text-sm">
-        {description ? <div className="text-muted">{description}</div> : null}
-        {children}
-
-        {error ? (
-          <p role="alert" className="rounded-md bg-danger-subtle text-danger px-3 py-2">
-            {error}
-          </p>
-        ) : null}
-
-        {confirmText ? (
-          <div>
-            <Label htmlFor={inputId}>
-              Type <code className="font-mono">{confirmText}</code> to confirm
-            </Label>
-            <Input
-              id={inputId}
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              autoComplete="off"
-              placeholder={confirmText}
-            />
+      {open ? (
+        <>
+          <div className="px-5 py-4 border-b border-border">
+            <h2 id={`${inputId}-title`} className="text-base font-semibold">
+              {title}
+            </h2>
           </div>
-        ) : null}
-      </div>
 
-      <div className="px-5 py-3 border-t border-border bg-surface-subtle rounded-b-lg flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          variant={destructive ? 'danger' : 'primary'}
-          onClick={onConfirm}
-          disabled={busy || !satisfied}
-        >
-          {busy ? 'Working…' : confirmLabel}
-        </Button>
-      </div>
+          <div className="px-5 py-4 space-y-3 text-sm">
+            {description ? <div className="text-muted">{description}</div> : null}
+            {children}
+
+            {error ? (
+              <p role="alert" className="rounded-md bg-danger-subtle text-danger px-3 py-2">
+                {error}
+              </p>
+            ) : null}
+
+            {confirmText ? (
+              <div>
+                <Label htmlFor={inputId}>
+                  Type <code className="font-mono">{confirmText}</code> to confirm
+                </Label>
+                <Input
+                  id={inputId}
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  autoComplete="off"
+                  placeholder={confirmText}
+                />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="px-5 py-3 border-t border-border bg-surface-subtle rounded-b-lg flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant={destructive ? 'danger' : 'primary'}
+              onClick={onConfirm}
+              disabled={busy || !satisfied}
+            >
+              {busy ? 'Working…' : confirmLabel}
+            </Button>
+          </div>
+        </>
+      ) : null}
     </dialog>
   )
 }

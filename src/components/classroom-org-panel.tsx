@@ -139,7 +139,7 @@ export async function OrgAccessCheckPanel({
   const problem = orgAccessProblem(settings)
   if (problem) {
     return (
-      <div role="alert" className="rounded-md bg-warning-subtle text-warning px-3 py-2">
+      <div className="rounded-md bg-warning-subtle text-warning px-3 py-2">
         {problem} Invitations are refused until it is.
       </div>
     )
