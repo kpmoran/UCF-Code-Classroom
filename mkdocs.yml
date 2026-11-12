@@ -1,0 +1,81 @@
+# Documentation site, built with MkDocs and the Material theme.
+#
+# Serve locally with `npm run docs` (needs `uv`: https://docs.astral.sh/uv/), or
+# `uvx --from mkdocs-material mkdocs serve`. `.github/workflows/docs.yml` publishes
+# it to GitHub Pages on every push to main that touches docs/ or this file.
+site_name: UCF Code Classroom
+site_description: A self-hosted GitHub Classroom replacement for UCF courses.
+site_url: https://kpmoran.github.io/UCF-Code-Classroom/
+repo_url: https://github.com/kpmoran/UCF-Code-Classroom
+repo_name: kpmoran/UCF-Code-Classroom
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Overview: index.md
+  - Getting started:
+      - Quick start: getting-started/quick-start.md
+      - GitHub App setup: getting-started/github-app.md
+  - Access and sign-in:
+      - Sign-in, faculty and site admins: access/sign-in-and-roles.md
+      - Organizations and the owner credential: access/organizations.md
+      - The front page: access/front-page.md
+  - Using it:
+      - Assignments and repositories: guide/assignments.md
+      - Invitations and organization membership: guide/invitations.md
+      - Staff access to student repositories: guide/staff-access.md
+      - Deadlines: guide/deadlines.md
+      - Project boards: guide/project-boards.md
+      - Linking students to an assignment: guide/linking-students.md
+      - Exporting grades to Canvas: guide/canvas.md
+  - How it works:
+      - Pages do not wait on GitHub: design/rendering.md
+      - Rate limits: design/rate-limits.md
+      - Student identifiers never reach GitHub: design/privacy.md
+      - A stale worker: design/worker.md
+      - Light and dark: design/theming.md
+      - Prisma 7 and Next.js 16: design/frameworks.md
+  - Development:
+      - Commands and project layout: development/commands.md
+      - Webhooks in development: development/webhooks.md
+      - Continuous integration: development/ci.md
+  - Deployment:
+      - Before deploying: deployment/before-deploying.md
+      - Deploying: deployment/deploying.md
+      - Operating it: deployment/operating.md
+      - Backups: deployment/backups.md

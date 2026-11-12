@@ -53,3 +53,6 @@ deploy/backups/
 # Written on the server by the deploy to pin the image. Never in git.
 deploy/docker-compose.override.yml
 docker-compose.override.yml
+
+# MkDocs output (npm run docs:build)
+/site

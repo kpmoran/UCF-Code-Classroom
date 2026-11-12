@@ -22,7 +22,9 @@
     "postinstall": "prisma generate",
     "test:github": "vitest run --config vitest.integration.config.mts",
     "db:clean-tests": "tsx scripts/clean-test-data.ts",
-    "build:icons": "node scripts/build-icons.mjs"
+    "build:icons": "node scripts/build-icons.mjs",
+    "docs": "uvx --from mkdocs-material mkdocs serve",
+    "docs:build": "uvx --from mkdocs-material mkdocs build --strict"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",

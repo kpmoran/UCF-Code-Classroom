@@ -89,7 +89,13 @@ export default async function NewClassroomPage() {
                 <code className="font-mono">GITHUB_APP_PRIVATE_KEY</code> are set in{' '}
                 <code className="font-mono">.env</code>, then restart the server.
               </p>
-              <p>See “GitHub App setup” in the README.</p>
+              <p>
+                See{' '}
+                <a className="underline" href="https://kpmoran.github.io/UCF-Code-Classroom/getting-started/github-app/">
+                  GitHub App setup
+                </a>{' '}
+                in the docs.
+              </p>
             </CardContent>
           </Card>
         ) : available.length === 0 ? (

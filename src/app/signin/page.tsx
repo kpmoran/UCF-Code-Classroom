@@ -12,7 +12,7 @@ const ERROR_MESSAGES: Record<string, string> = {
     'That GitHub account is already linked to a different UCF Code Classroom user.',
   AccessDenied: 'You cancelled the GitHub authorization, or access was denied.',
   Configuration:
-    'GitHub sign-in is not configured on this server. See "GitHub App setup" in the README.',
+    'GitHub sign-in is not configured on this server. See the GitHub App setup guide in the docs.',
 }
 
 export default async function SignInPage(props: PageProps<'/signin'>) {
@@ -77,8 +77,11 @@ export default async function SignInPage(props: PageProps<'/signin'>) {
               <p className="mt-1">
                 Set <code className="font-mono">AUTH_GITHUB_ID</code> and{' '}
                 <code className="font-mono">AUTH_GITHUB_SECRET</code> in{' '}
-                <code className="font-mono">.env</code>, then restart. See “GitHub App
-                setup” in the README.
+                <code className="font-mono">.env</code>, then restart. See{' '}
+                <a className="underline" href="https://kpmoran.github.io/UCF-Code-Classroom/getting-started/github-app/">
+                  GitHub App setup
+                </a>{' '}
+                in the docs.
               </p>
             </div>
           )}

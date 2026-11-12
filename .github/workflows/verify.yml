@@ -57,7 +57,7 @@ jobs:
             echo 'configured=true' >> "$GITHUB_OUTPUT"
           else
             echo 'configured=false' >> "$GITHUB_OUTPUT"
-            echo '::warning title=Skipped::SANDBOX_APP_ID and SANDBOX_APP_PRIVATE_KEY are not set, so the GitHub suites were skipped. See "Continuous integration" in README.md.'
+            echo '::warning title=Skipped::SANDBOX_APP_ID and SANDBOX_APP_PRIVATE_KEY are not set, so the GitHub suites were skipped. See https://kpmoran.github.io/UCF-Code-Classroom/development/ci/'
           fi
 
   e2e:

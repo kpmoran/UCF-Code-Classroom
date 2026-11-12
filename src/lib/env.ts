@@ -120,7 +120,7 @@ export function requireGitHubAppConfig(): {
   if (missing.length > 0) {
     throw new Error(
       `GitHub App is not configured. Missing: ${missing.join(', ')}. ` +
-        'See "GitHub App setup" in README.md.',
+        'See https://kpmoran.github.io/UCF-Code-Classroom/getting-started/github-app/',
     )
   }
 
@@ -149,7 +149,7 @@ export function requireGitHubOAuthConfig(): { clientId: string; clientSecret: st
   if (!env.AUTH_GITHUB_ID || !env.AUTH_GITHUB_SECRET) {
     throw new Error(
       'GitHub OAuth is not configured. Set AUTH_GITHUB_ID and AUTH_GITHUB_SECRET ' +
-        'from your GitHub App\'s OAuth credentials. See README.md.',
+        'from your GitHub App\'s OAuth credentials. See https://kpmoran.github.io/UCF-Code-Classroom/getting-started/github-app/',
     )
   }
   return { clientId: env.AUTH_GITHUB_ID, clientSecret: env.AUTH_GITHUB_SECRET }
