@@ -78,7 +78,7 @@ export default async function SignInPage(props: PageProps<'/signin'>) {
                 Set <code className="font-mono">AUTH_GITHUB_ID</code> and{' '}
                 <code className="font-mono">AUTH_GITHUB_SECRET</code> in{' '}
                 <code className="font-mono">.env</code>, then restart. See{' '}
-                <a className="underline" href="https://kpmoran.github.io/UCF-Code-Classroom/getting-started/github-app/">
+                <a className="underline" href="https://kpmoran.com/UCF-Code-Classroom/getting-started/github-app/">
                   GitHub App setup
                 </a>{' '}
                 in the docs.

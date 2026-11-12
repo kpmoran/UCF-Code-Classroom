@@ -61,7 +61,7 @@ jobs:
             echo 'configured=true' >> "$GITHUB_OUTPUT"
           else
             echo 'configured=false' >> "$GITHUB_OUTPUT"
-            echo "::warning title=Deploy skipped::Not configured yet. Missing: ${missing[*]}. See https://kpmoran.github.io/UCF-Code-Classroom/deployment/deploying/"
+            echo "::warning title=Deploy skipped::Not configured yet. Missing: ${missing[*]}. See https://kpmoran.com/UCF-Code-Classroom/deployment/deploying/"
           fi
 
       - id: tag

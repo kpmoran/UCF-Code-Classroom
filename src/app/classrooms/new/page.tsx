@@ -91,7 +91,7 @@ export default async function NewClassroomPage() {
               </p>
               <p>
                 See{' '}
-                <a className="underline" href="https://kpmoran.github.io/UCF-Code-Classroom/getting-started/github-app/">
+                <a className="underline" href="https://kpmoran.com/UCF-Code-Classroom/getting-started/github-app/">
                   GitHub App setup
                 </a>{' '}
                 in the docs.

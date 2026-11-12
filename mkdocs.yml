@@ -5,7 +5,7 @@
 # it to GitHub Pages on every push to main that touches docs/ or this file.
 site_name: UCF Code Classroom
 site_description: A self-hosted GitHub Classroom replacement for UCF courses.
-site_url: https://kpmoran.github.io/UCF-Code-Classroom/
+site_url: https://kpmoran.com/UCF-Code-Classroom/
 repo_url: https://github.com/kpmoran/UCF-Code-Classroom
 repo_name: kpmoran/UCF-Code-Classroom
 edit_uri: edit/main/docs/
